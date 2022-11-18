@@ -1,7 +1,24 @@
+import { gql, useQuery } from "@apollo/client";
+
 export default function Index() {
+  const { loading, error, data } = useQuery(gql`
+    query HomeQuery {
+      allUsers {
+        nodes {
+          id
+          name
+        }
+      }
+    }
+  `);
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", lineHeight: "1.4" }}>
       <h1>Welcome to Remix</h1>
+      <ul>
+        {data?.allUsers.nodes.map((node) => (
+          <li key={node.id}>{node.name}</li>
+        ))}
+      </ul>
       <ul>
         <li>
           <a
