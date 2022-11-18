@@ -3,6 +3,7 @@ const express = require("express");
 const compression = require("compression");
 const morgan = require("morgan");
 const { createRequestHandler } = require("@remix-run/express");
+const { postgraphile } = require("postgraphile");
 
 const BUILD_DIR = path.join(process.cwd(), "build");
 
@@ -12,6 +13,19 @@ app.use(compression());
 
 // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable("x-powered-by");
+
+app.use(
+  postgraphile(
+    process.env.DATABASE_URL ||
+      `postgres://cfpgql_owner:password@localhost:5432/cfpgql`,
+    "public",
+    {
+      watchPg: true,
+      graphiql: true,
+      enhanceGraphiql: true,
+    }
+  )
+);
 
 // Remix fingerprints its assets so we can cache forever.
 app.use(
