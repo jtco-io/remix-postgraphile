@@ -1,13 +1,20 @@
 import { RemixBrowser } from "@remix-run/react";
 import { startTransition, StrictMode } from "react";
 import { hydrateRoot } from "react-dom/client";
+import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
 
 function hydrate() {
+  const client = new ApolloClient({
+    cache: new InMemoryCache().restore(window.__APOLLO_STATE__),
+    uri: "/graphql",
+  });
   startTransition(() => {
     hydrateRoot(
       document,
       <StrictMode>
-        <RemixBrowser />
+        <ApolloProvider client={client}>
+          <RemixBrowser />
+        </ApolloProvider>
       </StrictMode>
     );
   });
