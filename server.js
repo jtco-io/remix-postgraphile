@@ -6,6 +6,14 @@ const { createRequestHandler } = require("@remix-run/express");
 const { postgraphile } = require("postgraphile");
 const { Pool } = require("pg");
 
+/**
+ * We define the pgPool globally and allow access on process
+ * @type {Pool}
+ */
+process.pgPool = new Pool({
+  connectionString: "postgres://cfpgql_owner:password@localhost:5432/cfpgql",
+});
+
 const BUILD_DIR = path.join(process.cwd(), "build");
 
 const app = express();
@@ -14,10 +22,6 @@ app.use(compression());
 
 // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable("x-powered-by");
-
-process.pgPool = new Pool({
-  connectionString: "postgres://cfpgql_owner:password@localhost:5432/cfpgql",
-});
 
 app.use(
   postgraphile(process.pgPool, "public", {
