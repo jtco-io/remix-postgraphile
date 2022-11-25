@@ -4,6 +4,7 @@ const compression = require("compression");
 const morgan = require("morgan");
 const { createRequestHandler } = require("@remix-run/express");
 const { postgraphile } = require("postgraphile");
+const { Pool } = require("pg");
 
 const BUILD_DIR = path.join(process.cwd(), "build");
 
@@ -14,17 +15,16 @@ app.use(compression());
 // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable("x-powered-by");
 
+process.pgPool = new Pool({
+  connectionString: "postgres://cfpgql_owner:password@localhost:5432/cfpgql",
+});
+
 app.use(
-  postgraphile(
-    process.env.DATABASE_URL ||
-      `postgres://cfpgql_owner:password@localhost:5432/cfpgql`,
-    "public",
-    {
-      watchPg: true,
-      graphiql: true,
-      enhanceGraphiql: true,
-    }
-  )
+  postgraphile(process.pgPool, "public", {
+    watchPg: true,
+    graphiql: true,
+    enhanceGraphiql: true,
+  })
 );
 
 // Remix fingerprints its assets so we can cache forever.

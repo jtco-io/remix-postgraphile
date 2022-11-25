@@ -5,9 +5,8 @@ import { RemixServer } from "@remix-run/react";
 import isbot from "isbot";
 import { renderToPipeableStream } from "react-dom/server";
 import { ApolloClient, ApolloProvider, InMemoryCache } from "@apollo/client";
-import { SchemaLink } from "@apollo/client/link/schema";
-import { createPostGraphileSchema } from "postgraphile";
 import { getDataFromTree } from "@apollo/client/react/ssr";
+import { GraphileApolloLink } from "~/utils/graphileApolloLink.server";
 
 const ABORT_DELAY = 5000;
 
@@ -17,19 +16,25 @@ export default function handleRequest(
   responseHeaders: Headers,
   remixContext: EntryContext
 ) {
-  return isbot(request.headers.get("user-agent"))
-    ? handleBotRequest(
-        request,
-        responseStatusCode,
-        responseHeaders,
-        remixContext
-      )
-    : handleBrowserRequest(
-        request,
-        responseStatusCode,
-        responseHeaders,
-        remixContext
-      );
+  return handleBrowserRequest(
+    request,
+    responseStatusCode,
+    responseHeaders,
+    remixContext
+  );
+  // return isbot(request.headers.get("user-agent"))
+  //   ? handleBotRequest(
+  //       request,
+  //       responseStatusCode,
+  //       responseHeaders,
+  //       remixContext
+  //     )
+  //   : handleBrowserRequest(
+  //       request,
+  //       responseStatusCode,
+  //       responseHeaders,
+  //       remixContext
+  //     );
 }
 
 function handleBotRequest(
@@ -79,19 +84,13 @@ async function handleBrowserRequest(
   responseHeaders: Headers,
   remixContext: EntryContext
 ) {
-  const schema = await createPostGraphileSchema(
-    process.env.DATABASE_URL ||
-      `postgres://cfpgql_owner:password@localhost:5432/cfpgql`,
-    "public"
-  );
   return new Promise((resolve, reject) => {
     let didError = false;
 
     const graphqlClient = new ApolloClient({
       cache: new InMemoryCache(),
       ssrMode: true,
-      // @ts-ignore
-      link: new SchemaLink({ schema }),
+      link: new GraphileApolloLink(),
     });
     const App = (
       <ApolloProvider client={graphqlClient}>
