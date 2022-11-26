@@ -1,0 +1,8 @@
+query HomeScreen {
+    allUsers {
+        nodes {
+            id
+            name
+        }
+    }
+}

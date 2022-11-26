@@ -3,3 +3,6 @@ node_modules
 /.cache
 /build
 /public/build
+schema.graphql
+graphql-types.ts
+*.generated.ts

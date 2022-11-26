@@ -11,7 +11,7 @@ const { Pool } = require("pg");
  * @type {Pool}
  */
 process.pgPool = new Pool({
-  connectionString: "postgres://cfpgql_owner:password@localhost:5432/cfpgql",
+  connectionString: process.env.DATABASE_OWNER_URI,
 });
 
 const BUILD_DIR = path.join(process.cwd(), "build");
@@ -24,7 +24,7 @@ app.use(compression());
 app.disable("x-powered-by");
 
 app.use(
-  postgraphile(process.pgPool, "public", {
+  postgraphile(process.pgPool, "app_public", {
     watchPg: true,
     graphiql: true,
     enhanceGraphiql: true,
