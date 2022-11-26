@@ -27,7 +27,6 @@ export class GraphileApolloLink extends ApolloLink {
   ): Observable<FetchResult> | null {
     const source = operation.query.loc?.source.body;
     if (!source) throw new Error("Could not convert graphql query to string");
-    console.log("requests!", operation.query.loc?.source.body);
     return new Observable((observer) => {
       (async () => {
         const schema = await createPostGraphileSchema(pgPool, "app_public");
