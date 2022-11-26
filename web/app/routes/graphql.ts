@@ -1,15 +1,12 @@
 import type { ActionFunction } from "@remix-run/node";
-import {
-  createPostGraphileSchema,
-  withPostGraphileContext,
-} from "postgraphile";
+import { withPostGraphileContext } from "postgraphile";
 import pgPool from "~/utils/pgPool.server";
 import { graphql } from "graphql";
 import { json } from "@remix-run/node";
+import schema from "~/schema";
 
 export const action: ActionFunction = async ({ request }) => {
   const body = await request.json();
-  const schema = await createPostGraphileSchema(pgPool, "app_public");
   const res = await withPostGraphileContext(
     {
       pgPool,
@@ -19,7 +16,7 @@ export const action: ActionFunction = async ({ request }) => {
       // `context` object, which should NOT be used outside of this
       // function.
       return await graphql(
-        schema, // The schema from `createPostGraphileSchema`
+        await schema, // The schema from `createPostGraphileSchema`
         body.query,
         null,
         { ...context }, // You can add more to context if you like

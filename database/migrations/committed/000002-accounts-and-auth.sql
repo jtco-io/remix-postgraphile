@@ -1,5 +1,5 @@
 --! Previous: sha1:b6b182753668bd9f858e44f95d1338c65c0a87be
---! Hash: sha1:3b4594287a178506c90f3ba3ca37c1f2dbafbd6a
+--! Hash: sha1:ee07180be766df17416e485c20b476f1b75a88c2
 --! Message: accounts and auth
 
 --! split: 0040-pg-sessions-table.sql
@@ -12,15 +12,16 @@
  * Do not confuse this with the `app_private.sessions` table.
  */
 
-create table app_private.connect_pg_simple_sessions (
-  sid varchar not null,
-	sess json not null,
-	expire timestamp not null
+CREATE TABLE app_private.connect_pg_simple_sessions
+(
+    sid    varchar   NOT NULL,
+    sess   json      NOT NULL,
+    expire timestamp NOT NULL
 );
-alter table app_private.connect_pg_simple_sessions
-  enable row level security;
-alter table app_private.connect_pg_simple_sessions
-  add constraint session_pkey primary key (sid) not deferrable initially immediate;
+ALTER TABLE app_private.connect_pg_simple_sessions
+    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_private.connect_pg_simple_sessions
+    ADD CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE;
 
 --! split: 1000-sessions.sql
 /*
@@ -46,17 +47,19 @@ alter table app_private.connect_pg_simple_sessions
  * session.
  */
 
-create table app_private.sessions (
-  uuid uuid not null default gen_random_uuid() primary key,
-  user_id uuid not null,
-  -- You could add access restriction columns here if you want, e.g. for OAuth scopes.
-  created_at timestamptz not null default now(),
-  last_active timestamptz not null default now()
+CREATE TABLE app_private.sessions
+(
+    uuid        uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     uuid        NOT NULL,
+    -- You could add access restriction columns here if you want, e.g. for OAuth scopes.
+    created_at  timestamptz NOT NULL DEFAULT NOW(),
+    last_active timestamptz NOT NULL DEFAULT NOW()
 );
-alter table app_private.sessions enable row level security;
+ALTER TABLE app_private.sessions
+    ENABLE ROW LEVEL SECURITY;
 
 -- To allow us to efficiently see what sessions are open for a particular user.
-create index on app_private.sessions (user_id);
+CREATE INDEX ON app_private.sessions (user_id);
 
 --! split: 1010-session-functions.sql
 /*
@@ -70,11 +73,12 @@ create index on app_private.sessions (user_id);
 -- schema because we've used `postgraphile.tags.jsonc` to omit it. We could
 -- have put it in app_hidden to get the same effect more easily, but it's often
 -- useful to un-omit it to ease debugging auth issues.
-create function app_public.current_session_id() returns uuid as $$
-  select nullif(pg_catalog.current_setting('jwt.claims.session_id', true), '')::uuid;
-$$ language sql stable;
-comment on function app_public.current_session_id() is
-  E'Handy method to get the current session ID.';
+CREATE FUNCTION app_public.current_session_id() RETURNS uuid AS
+$$
+SELECT NULLIF(pg_catalog.CURRENT_SETTING('jwt.claims.session_id', TRUE), '')::uuid;
+$$ LANGUAGE sql STABLE;
+COMMENT ON FUNCTION app_public.current_session_id() IS
+    E'Handy method to get the current session ID.';
 
 
 /*
@@ -97,11 +101,16 @@ comment on function app_public.current_session_id() is
  * a cryptographically secure random value that is kept secret). This makes
  * impersonating another user virtually impossible.
  */
-create function app_public.current_user_id() returns uuid as $$
-  select user_id from app_private.sessions where uuid = app_public.current_session_id();
-$$ language sql stable security definer set search_path to pg_catalog, public, pg_temp;
-comment on function app_public.current_user_id() is
-  E'Handy method to get the current user ID for use in RLS policies, etc; in GraphQL, use `currentUser{id}` instead.';
+CREATE FUNCTION app_public.current_user_id() RETURNS uuid AS
+$$
+SELECT user_id
+FROM app_private.sessions
+WHERE uuid = app_public.current_session_id();
+$$ LANGUAGE sql STABLE
+                SECURITY DEFINER
+                SET search_path TO pg_catalog, public, pg_temp;
+COMMENT ON FUNCTION app_public.current_user_id() IS
+    E'Handy method to get the current user ID for use in RLS policies, etc; in GraphQL, use `currentUser{id}` instead.';
 
 --! split: 1020-users.sql
 /*
@@ -114,61 +123,68 @@ comment on function app_public.current_user_id() is
  * disagree then you should relocate these attributes to another table, such as
  * `user_secrets`.
  */
-create table app_public.users (
-  id uuid primary key default gen_random_uuid(),
-  username citext not null unique check(length(username) >= 2 and length(username) <= 24 and username ~ '^[a-zA-Z]([_]?[a-zA-Z0-9])+$'),
-  name text,
-  avatar_url text check(avatar_url ~ '^https?://[^/]+'),
-  is_admin boolean not null default false,
-  is_verified boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+CREATE TABLE app_public.users
+(
+    id          uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+    username    citext      NOT NULL UNIQUE CHECK (LENGTH(username) >= 2 AND LENGTH(username) <= 24 AND
+                                                   username ~ '^[a-zA-Z]([_]?[a-zA-Z0-9])+$'),
+    name        text,
+    avatar_url  text CHECK (avatar_url ~ '^https?://[^/]+'),
+    is_admin    boolean     NOT NULL DEFAULT FALSE,
+    is_verified boolean     NOT NULL DEFAULT FALSE,
+    created_at  timestamptz NOT NULL DEFAULT NOW(),
+    updated_at  timestamptz NOT NULL DEFAULT NOW()
 );
-alter table app_public.users enable row level security;
+ALTER TABLE app_public.users
+    ENABLE ROW LEVEL SECURITY;
 
 -- We couldn't implement this relationship on the sessions table until the users table existed!
-alter table app_private.sessions
-  add constraint sessions_user_id_fkey
-  foreign key ("user_id") references app_public.users on delete cascade;
+ALTER TABLE app_private.sessions
+    ADD CONSTRAINT sessions_user_id_fkey
+        FOREIGN KEY ("user_id") REFERENCES app_public.users ON DELETE CASCADE;
 
 -- Users are publicly visible, like on GitHub, Twitter, Facebook, Trello, etc.
-create policy select_all on app_public.users for select using (true);
+CREATE POLICY select_all ON app_public.users FOR SELECT USING (TRUE);
 -- You can only update yourself.
-create policy update_self on app_public.users for update using (id = app_public.current_user_id());
-grant select on app_public.users to :DATABASE_VISITOR;
+CREATE POLICY update_self ON app_public.users FOR UPDATE USING (id = app_public.current_user_id());
+GRANT SELECT ON app_public.users TO :DATABASE_VISITOR;
 -- NOTE: `insert` is not granted, because we'll handle that separately
-grant update(username, name, avatar_url) on app_public.users to :DATABASE_VISITOR;
+GRANT UPDATE (username, name, avatar_url) ON app_public.users TO :DATABASE_VISITOR;
 -- NOTE: `delete` is not granted, because we require confirmation via request_account_deletion/confirm_account_deletion
 
-comment on table app_public.users is
-  E'A user who can log in to the application.';
+COMMENT ON TABLE app_public.users IS
+    E'A user who can log in to the application.';
 
-comment on column app_public.users.id is
-  E'Unique identifier for the user.';
-comment on column app_public.users.username is
-  E'Public-facing username (or ''handle'') of the user.';
-comment on column app_public.users.name is
-  E'Public-facing name (or pseudonym) of the user.';
-comment on column app_public.users.avatar_url is
-  E'Optional avatar URL.';
-comment on column app_public.users.is_admin is
-  E'If true, the user has elevated privileges.';
+COMMENT ON COLUMN app_public.users.id IS
+    E'Unique identifier for the user.';
+COMMENT ON COLUMN app_public.users.username IS
+    E'Public-facing username (or ''handle'') of the user.';
+COMMENT ON COLUMN app_public.users.name IS
+    E'Public-facing name (or pseudonym) of the user.';
+COMMENT ON COLUMN app_public.users.avatar_url IS
+    E'Optional avatar URL.';
+COMMENT ON COLUMN app_public.users.is_admin IS
+    E'If true, the user has elevated privileges.';
 
-create trigger _100_timestamps
-  before insert or update on app_public.users
-  for each row
-  execute procedure app_private.tg__timestamps();
+CREATE TRIGGER _100_timestamps
+    BEFORE INSERT OR UPDATE
+    ON app_public.users
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__timestamps();
 
 /**********/
 
 -- Returns the current user; this is a "custom query" function; see:
 -- https://www.graphile.org/postgraphile/custom-queries/
 -- So this will be queryable via GraphQL as `{ currentUser { ... } }`
-create function app_public.current_user() returns app_public.users as $$
-  select users.* from app_public.users where id = app_public.current_user_id();
-$$ language sql stable;
-comment on function app_public.current_user() is
-  E'The currently logged in user (or null if not logged in).';
+CREATE FUNCTION app_public.current_user() RETURNS app_public.users AS
+$$
+SELECT users.*
+FROM app_public.users
+WHERE id = app_public.current_user_id();
+$$ LANGUAGE sql STABLE;
+COMMENT ON FUNCTION app_public.current_user() IS
+    E'The currently logged in user (or null if not logged in).';
 
 /**********/
 
@@ -177,39 +193,44 @@ comment on function app_public.current_user() is
 -- want the user themselves to be able to see it - things like the bcrypted
 -- password hash, timestamps of recent login attempts (to allow us to
 -- auto-protect user accounts that are under attack), etc.
-create table app_private.user_secrets (
-  user_id uuid not null primary key references app_public.users on delete cascade,
-  password_hash text,
-  last_login_at timestamptz not null default now(),
-  failed_password_attempts int not null default 0,
-  first_failed_password_attempt timestamptz,
-  reset_password_token text,
-  reset_password_token_generated timestamptz,
-  failed_reset_password_attempts int not null default 0,
-  first_failed_reset_password_attempt timestamptz,
-  delete_account_token text,
-  delete_account_token_generated timestamptz
+CREATE TABLE app_private.user_secrets
+(
+    user_id                             uuid        NOT NULL PRIMARY KEY REFERENCES app_public.users ON DELETE CASCADE,
+    password_hash                       text,
+    last_login_at                       timestamptz NOT NULL DEFAULT NOW(),
+    failed_password_attempts            int         NOT NULL DEFAULT 0,
+    first_failed_password_attempt       timestamptz,
+    reset_password_token                text,
+    reset_password_token_generated      timestamptz,
+    failed_reset_password_attempts      int         NOT NULL DEFAULT 0,
+    first_failed_reset_password_attempt timestamptz,
+    delete_account_token                text,
+    delete_account_token_generated      timestamptz
 );
-alter table app_private.user_secrets enable row level security;
-comment on table app_private.user_secrets is
-  E'The contents of this table should never be visible to the user. Contains data mostly related to authentication.';
+ALTER TABLE app_private.user_secrets
+    ENABLE ROW LEVEL SECURITY;
+COMMENT ON TABLE app_private.user_secrets IS
+    E'The contents of this table should never be visible to the user. Contains data mostly related to authentication.';
 
 /*
  * When we insert into `users` we _always_ want there to be a matching
  * `user_secrets` entry, so we have a trigger to enforce this:
  */
-create function app_private.tg_user_secrets__insert_with_user() returns trigger as $$
-begin
-  insert into app_private.user_secrets(user_id) values(NEW.id);
-  return NEW;
-end;
-$$ language plpgsql volatile set search_path to pg_catalog, public, pg_temp;
-create trigger _500_insert_secrets
-  after insert on app_public.users
-  for each row
-  execute procedure app_private.tg_user_secrets__insert_with_user();
-comment on function app_private.tg_user_secrets__insert_with_user() is
-  E'Ensures that every user record has an associated user_secret record.';
+CREATE FUNCTION app_private.tg_user_secrets__insert_with_user() RETURNS trigger AS
+$$
+BEGIN
+    INSERT INTO app_private.user_secrets(user_id) VALUES (new.id);
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SET search_path TO pg_catalog, public, pg_temp;
+CREATE TRIGGER _500_insert_secrets
+    AFTER INSERT
+    ON app_public.users
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg_user_secrets__insert_with_user();
+COMMENT ON FUNCTION app_private.tg_user_secrets__insert_with_user() IS
+    E'Ensures that every user record has an associated user_secret record.';
 
 /*
  * Because you can register with username/password or using OAuth (social
@@ -217,9 +238,25 @@ comment on function app_private.tg_user_secrets__insert_with_user() is
  * password. This is to help the UI display the right interface: change
  * password or set password.
  */
-create function app_public.users_has_password(u app_public.users) returns boolean as $$
-  select (password_hash is not null) from app_private.user_secrets where user_secrets.user_id = u.id and u.id = app_public.current_user_id();
-$$ language sql stable security definer set search_path to pg_catalog, public, pg_temp;
+CREATE FUNCTION app_public.users_has_password(u app_public.users) RETURNS boolean AS
+$$
+SELECT (password_hash IS NOT NULL)
+FROM app_private.user_secrets
+WHERE user_secrets.user_id = u.id
+  AND u.id = app_public.current_user_id();
+$$ LANGUAGE sql STABLE
+                SECURITY DEFINER
+                SET search_path TO pg_catalog, public, pg_temp;
+
+CREATE OR REPLACE FUNCTION app_public.viewer() RETURNS app_public.users AS
+$$
+SELECT *
+FROM app_public.users
+WHERE id = app_public.current_user_id();
+$$ LANGUAGE sql STABLE;
+
+COMMENT ON FUNCTION app_public.viewer() IS
+    E'The currently logged in user (or null if not logged in).';
 
 --! split: 1030-user_emails.sql
 /*
@@ -229,150 +266,163 @@ $$ language sql stable security definer set search_path to pg_catalog, public, p
  * different emails to log in versus where to send notifications. Therefore we
  * track user emails in a separate table.
  */
-create table app_public.user_emails (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default app_public.current_user_id() references app_public.users on delete cascade,
-  email citext not null check (email ~ '[^@]+@[^@]+\.[^@]+'),
-  is_verified boolean not null default false,
-  is_primary boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  -- Each user can only have an email once.
-  constraint user_emails_user_id_email_key unique(user_id, email),
-  -- An unverified email cannot be set as the primary email.
-  constraint user_emails_must_be_verified_to_be_primary check(is_primary is false or is_verified is true)
+CREATE TABLE app_public.user_emails
+(
+    id          uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+    user_id     uuid        NOT NULL DEFAULT app_public.current_user_id() REFERENCES app_public.users ON DELETE CASCADE,
+    email       citext      NOT NULL CHECK (email ~ '[^@]+@[^@]+\.[^@]+'),
+    is_verified boolean     NOT NULL DEFAULT FALSE,
+    is_primary  boolean     NOT NULL DEFAULT FALSE,
+    created_at  timestamptz NOT NULL DEFAULT NOW(),
+    updated_at  timestamptz NOT NULL DEFAULT NOW(),
+    -- Each user can only have an email once.
+    CONSTRAINT user_emails_user_id_email_key UNIQUE (user_id, email),
+    -- An unverified email cannot be set as the primary email.
+    CONSTRAINT user_emails_must_be_verified_to_be_primary CHECK (is_primary IS FALSE OR is_verified IS TRUE)
 );
-alter table app_public.user_emails enable row level security;
+ALTER TABLE app_public.user_emails
+    ENABLE ROW LEVEL SECURITY;
 
 -- Once an email is verified, it may only be used by one user. (We can't
 -- enforce this before an email is verified otherwise it could be used to
 -- prevent a legitimate user from signing up.)
-create unique index uniq_user_emails_verified_email on app_public.user_emails(email) where (is_verified is true);
+CREATE UNIQUE INDEX uniq_user_emails_verified_email ON app_public.user_emails (email) WHERE (is_verified IS TRUE);
 -- Only one primary email per user.
-create unique index uniq_user_emails_primary_email on app_public.user_emails (user_id) where (is_primary is true);
+CREATE UNIQUE INDEX uniq_user_emails_primary_email ON app_public.user_emails (user_id) WHERE (is_primary IS TRUE);
 -- Allow efficient retrieval of all the emails owned by a particular user.
-create index idx_user_emails_user on app_public.user_emails (user_id);
+CREATE INDEX idx_user_emails_user ON app_public.user_emails (user_id);
 -- For the user settings page sorting
-create index idx_user_emails_primary on app_public.user_emails (is_primary, user_id);
+CREATE INDEX idx_user_emails_primary ON app_public.user_emails (is_primary, user_id);
 
 -- Keep created_at and updated_at up to date.
-create trigger _100_timestamps
-  before insert or update on app_public.user_emails
-  for each row
-  execute procedure app_private.tg__timestamps();
+CREATE TRIGGER _100_timestamps
+    BEFORE INSERT OR UPDATE
+    ON app_public.user_emails
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__timestamps();
 
 -- When an email address is added to a user, notify them (in case their account was compromised).
-create trigger _500_audit_added
-  after insert on app_public.user_emails
-  for each row
-  execute procedure app_private.tg__add_audit_job(
-    'added_email',
-    'user_id',
-    'id',
-    'email'
-  );
+CREATE TRIGGER _500_audit_added
+    AFTER INSERT
+    ON app_public.user_emails
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__add_audit_job(
+        'added_email',
+        'user_id',
+        'id',
+        'email'
+    );
 
 -- When an email address is removed from a user, notify them (in case their account was compromised).
-create trigger _500_audit_removed
-  after delete on app_public.user_emails
-  for each row
-  execute procedure app_private.tg__add_audit_job(
-    'removed_email',
-    'user_id',
-    'id',
-    'email'
-  );
+CREATE TRIGGER _500_audit_removed
+    AFTER DELETE
+    ON app_public.user_emails
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__add_audit_job(
+        'removed_email',
+        'user_id',
+        'id',
+        'email'
+    );
 
 -- You can't verify an email address that someone else has already verified. (Email is taken.)
-create function app_public.tg_user_emails__forbid_if_verified() returns trigger as $$
-begin
-  if exists(select 1 from app_public.user_emails where email = NEW.email and is_verified is true) then
-    raise exception 'An account using that email address has already been created.' using errcode='EMTKN';
-  end if;
-  return NEW;
-end;
-$$ language plpgsql volatile security definer set search_path to pg_catalog, public, pg_temp;
-create trigger _200_forbid_existing_email before insert on app_public.user_emails for each row execute procedure app_public.tg_user_emails__forbid_if_verified();
+CREATE FUNCTION app_public.tg_user_emails__forbid_if_verified() RETURNS trigger AS
+$$
+BEGIN
+    IF EXISTS(SELECT 1 FROM app_public.user_emails WHERE email = new.email AND is_verified IS TRUE) THEN
+        RAISE EXCEPTION 'An account using that email address has already been created.' USING ERRCODE = 'EMTKN';
+    END IF;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
+CREATE TRIGGER _200_forbid_existing_email
+    BEFORE INSERT
+    ON app_public.user_emails
+    FOR EACH ROW
+EXECUTE PROCEDURE app_public.tg_user_emails__forbid_if_verified();
 
 -- If the email wasn't already verified (e.g. via a social login provider) then
 -- queue up the verification email to be sent.
-create trigger _900_send_verification_email
-  after insert on app_public.user_emails
-  for each row
-  when (NEW.is_verified is false)
-  execute procedure app_private.tg__add_job('user_emails__send_verification');
+CREATE TRIGGER _900_send_verification_email
+    AFTER INSERT
+    ON app_public.user_emails
+    FOR EACH ROW
+    WHEN (new.is_verified IS FALSE)
+EXECUTE PROCEDURE app_private.tg__add_job('user_emails__send_verification');
 
-comment on table app_public.user_emails is
-  E'Information about a user''s email address.';
-comment on column app_public.user_emails.email is
-  E'The users email address, in `a@b.c` format.';
-comment on column app_public.user_emails.is_verified is
-  E'True if the user has is_verified their email address (by clicking the link in the email we sent them, or logging in with a social login provider), false otherwise.';
+COMMENT ON TABLE app_public.user_emails IS
+    E'Information about a user''s email address.';
+COMMENT ON COLUMN app_public.user_emails.email IS
+    E'The users email address, in `a@b.c` format.';
+COMMENT ON COLUMN app_public.user_emails.is_verified IS
+    E'True if the user has is_verified their email address (by clicking the link in the email we sent them, or logging in with a social login provider), false otherwise.';
 
 -- Users may only manage their own emails.
-create policy select_own on app_public.user_emails for select using (user_id = app_public.current_user_id());
-create policy insert_own on app_public.user_emails for insert with check (user_id = app_public.current_user_id());
+CREATE POLICY select_own ON app_public.user_emails FOR SELECT USING (user_id = app_public.current_user_id());
+CREATE POLICY insert_own ON app_public.user_emails FOR INSERT WITH CHECK (user_id = app_public.current_user_id());
 -- NOTE: we don't allow emails to be updated, instead add a new email and delete the old one.
-create policy delete_own on app_public.user_emails for delete using (user_id = app_public.current_user_id());
+CREATE POLICY delete_own ON app_public.user_emails FOR DELETE USING (user_id = app_public.current_user_id());
 
-grant select on app_public.user_emails to :DATABASE_VISITOR;
-grant insert (email) on app_public.user_emails to :DATABASE_VISITOR;
+GRANT SELECT ON app_public.user_emails TO :DATABASE_VISITOR;
+GRANT INSERT (email) ON app_public.user_emails TO :DATABASE_VISITOR;
 -- No update
-grant delete on app_public.user_emails to :DATABASE_VISITOR;
+GRANT DELETE ON app_public.user_emails TO :DATABASE_VISITOR;
 
 -- Prevent deleting the user's last email, otherwise they can't access password reset/etc.
-create function app_public.tg_user_emails__prevent_delete_last_email() returns trigger as $$
-begin
-  if exists (
-    with remaining as (
-      select user_emails.user_id
-      from app_public.user_emails
-      inner join deleted
-      on user_emails.user_id = deleted.user_id
-      -- Don't delete last verified email
-      where (user_emails.is_verified is true or not exists (
-        select 1
-        from deleted d2
-        where d2.user_id = user_emails.user_id
-        and d2.is_verified is true
-      ))
-      order by user_emails.id asc
-
-      /*
-       * Lock this table to prevent race conditions; see:
-       * https://www.cybertec-postgresql.com/en/triggers-to-enforce-constraints/
-       */
-      for update of user_emails
-    )
-    select 1
-    from app_public.users
-    where id in (
-      select user_id from deleted
-      except
-      select user_id from remaining
-    )
-  )
-  then
-    raise exception 'You must have at least one (verified) email address' using errcode = 'CDLEA';
-  end if;
-
-  return null;
-end;
+CREATE FUNCTION app_public.tg_user_emails__prevent_delete_last_email() RETURNS trigger AS
 $$
-language plpgsql
+BEGIN
+    IF EXISTS(
+            WITH remaining AS (SELECT user_emails.user_id
+                               FROM app_public.user_emails
+                                        INNER JOIN deleted
+                                                   ON user_emails.user_id = deleted.user_id
+                                    -- Don't delete last verified email
+                               WHERE (user_emails.is_verified IS TRUE OR NOT EXISTS(
+                                       SELECT 1
+                                       FROM deleted d2
+                                       WHERE d2.user_id = user_emails.user_id
+                                         AND d2.is_verified IS TRUE
+                                   ))
+                               ORDER BY user_emails.id ASC
+
+                                   /*
+                                    * Lock this table to prevent race conditions; see:
+                                    * https://www.cybertec-postgresql.com/en/triggers-to-enforce-constraints/
+                                    */
+                                   FOR UPDATE OF user_emails)
+            SELECT 1
+            FROM app_public.users
+            WHERE id IN (SELECT user_id
+                         FROM deleted
+                         EXCEPT
+                         SELECT user_id
+                         FROM remaining)
+        )
+    THEN
+        RAISE EXCEPTION 'You must have at least one (verified) email address' USING ERRCODE = 'CDLEA';
+    END IF;
+
+    RETURN NULL;
+END;
+$$
+    LANGUAGE plpgsql
 -- Security definer is required for 'FOR UPDATE OF' since we don't grant UPDATE privileges.
-security definer
-set search_path = pg_catalog, public, pg_temp;
+    SECURITY DEFINER
+    SET search_path = pg_catalog, public, pg_temp;
 
 -- Note this check runs AFTER the email was deleted. If the user was deleted
 -- then their emails will also be deleted (thanks to the foreign key on delete
 -- cascade) and this is desirable; we only want to prevent the deletion if
 -- the user still exists so we check after the statement completes.
-create trigger _500_prevent_delete_last
-  after delete on app_public.user_emails
-  referencing old table as deleted
-  for each statement
-  execute procedure app_public.tg_user_emails__prevent_delete_last_email();
+CREATE TRIGGER _500_prevent_delete_last
+    AFTER DELETE
+    ON app_public.user_emails
+    REFERENCING old TABLE AS deleted
+    FOR EACH STATEMENT
+EXECUTE PROCEDURE app_public.tg_user_emails__prevent_delete_last_email();
 
 /**********/
 
@@ -382,36 +432,42 @@ create trigger _500_prevent_delete_last
  * Like with user_secrets we automatically create a record in this table
  * whenever a record is added to user_emails.
  */
-create table app_private.user_email_secrets (
-  user_email_id uuid primary key references app_public.user_emails on delete cascade,
-  verification_token text,
-  verification_email_sent_at timestamptz,
-  password_reset_email_sent_at timestamptz
+CREATE TABLE app_private.user_email_secrets
+(
+    user_email_id                uuid PRIMARY KEY REFERENCES app_public.user_emails ON DELETE CASCADE,
+    verification_token           text,
+    verification_email_sent_at   timestamptz,
+    password_reset_email_sent_at timestamptz
 );
-alter table app_private.user_email_secrets enable row level security;
+ALTER TABLE app_private.user_email_secrets
+    ENABLE ROW LEVEL SECURITY;
 
-comment on table app_private.user_email_secrets is
-  E'The contents of this table should never be visible to the user. Contains data mostly related to email verification and avoiding spamming users.';
-comment on column app_private.user_email_secrets.password_reset_email_sent_at is
-  E'We store the time the last password reset was sent to this email to prevent the email getting flooded.';
+COMMENT ON TABLE app_private.user_email_secrets IS
+    E'The contents of this table should never be visible to the user. Contains data mostly related to email verification and avoiding spamming users.';
+COMMENT ON COLUMN app_private.user_email_secrets.password_reset_email_sent_at IS
+    E'We store the time the last password reset was sent to this email to prevent the email getting flooded.';
 
-create function app_private.tg_user_email_secrets__insert_with_user_email() returns trigger as $$
-declare
-  v_verification_token text;
-begin
-  if NEW.is_verified is false then
-    v_verification_token = encode(gen_random_bytes(7), 'hex');
-  end if;
-  insert into app_private.user_email_secrets(user_email_id, verification_token) values(NEW.id, v_verification_token);
-  return NEW;
-end;
-$$ language plpgsql volatile security definer set search_path to pg_catalog, public, pg_temp;
-create trigger _500_insert_secrets
-  after insert on app_public.user_emails
-  for each row
-  execute procedure app_private.tg_user_email_secrets__insert_with_user_email();
-comment on function app_private.tg_user_email_secrets__insert_with_user_email() is
-  E'Ensures that every user_email record has an associated user_email_secret record.';
+CREATE FUNCTION app_private.tg_user_email_secrets__insert_with_user_email() RETURNS trigger AS
+$$
+DECLARE
+    v_verification_token text;
+BEGIN
+    IF new.is_verified IS FALSE THEN
+        v_verification_token = ENCODE(gen_random_bytes(7), 'hex');
+    END IF;
+    INSERT INTO app_private.user_email_secrets(user_email_id, verification_token) VALUES (new.id, v_verification_token);
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
+CREATE TRIGGER _500_insert_secrets
+    AFTER INSERT
+    ON app_public.user_emails
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg_user_email_secrets__insert_with_user_email();
+COMMENT ON FUNCTION app_private.tg_user_email_secrets__insert_with_user_email() IS
+    E'Ensures that every user_email record has an associated user_email_secret record.';
 
 /**********/
 
@@ -425,23 +481,32 @@ comment on function app_private.tg_user_email_secrets__insert_with_user_email() 
  * and make sure that it checks that the user is allowed to do what they're
  * trying to do - in this case, we do that check by ensuring the token matches.
  */
-create function app_public.verify_email(user_email_id uuid, token text) returns boolean as $$
-begin
-  update app_public.user_emails
-  set
-    is_verified = true,
-    is_primary = is_primary or not exists(
-      select 1 from app_public.user_emails other_email where other_email.user_id = user_emails.user_id and other_email.is_primary is true
-    )
-  where id = user_email_id
-  and exists(
-    select 1 from app_private.user_email_secrets where user_email_secrets.user_email_id = user_emails.id and verification_token = token
-  );
-  return found;
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
-comment on function app_public.verify_email(user_email_id uuid, token text) is
-  E'Once you have received a verification token for your email, you may call this mutation with that token to make your email verified.';
+CREATE FUNCTION app_public.verify_email(user_email_id uuid, token text) RETURNS boolean AS
+$$
+BEGIN
+    UPDATE app_public.user_emails
+    SET is_verified = TRUE,
+        is_primary  = is_primary OR NOT EXISTS(
+                SELECT 1
+                FROM app_public.user_emails other_email
+                WHERE other_email.user_id = user_emails.user_id
+                  AND other_email.is_primary IS TRUE
+            )
+    WHERE id = user_email_id
+      AND EXISTS(
+            SELECT 1
+            FROM app_private.user_email_secrets
+            WHERE user_email_secrets.user_email_id = user_emails.id
+              AND verification_token = token
+        );
+    RETURN found;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
+COMMENT ON FUNCTION app_public.verify_email(user_email_id uuid, token text) IS
+    E'Once you have received a verification token for your email, you may call this mutation with that token to make your email verified.';
 
 /*
  * When the users first email address is verified we will mark their account as
@@ -449,19 +514,23 @@ comment on function app_public.verify_email(user_email_id uuid, token text) is
  * `isVerified` check.
  */
 
-create function app_public.tg_user_emails__verify_account_on_verified() returns trigger as $$
-begin
-  update app_public.users set is_verified = true where id = new.user_id and is_verified is false;
-  return new;
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
+CREATE FUNCTION app_public.tg_user_emails__verify_account_on_verified() RETURNS trigger AS
+$$
+BEGIN
+    UPDATE app_public.users SET is_verified = TRUE WHERE id = new.user_id AND is_verified IS FALSE;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-create trigger _500_verify_account_on_verified
-  after insert or update of is_verified
-  on app_public.user_emails
-  for each row
-  when (new.is_verified is true)
-  execute procedure app_public.tg_user_emails__verify_account_on_verified();
+CREATE TRIGGER _500_verify_account_on_verified
+    AFTER INSERT OR UPDATE OF is_verified
+    ON app_public.user_emails
+    FOR EACH ROW
+    WHEN (new.is_verified IS TRUE)
+EXECUTE PROCEDURE app_public.tg_user_emails__verify_account_on_verified();
 
 --! split: 1040-user_authentications.sql
 /*
@@ -476,70 +545,76 @@ create trigger _500_verify_account_on_verified
  * which calls out to the `app_private.link_or_register_user` database
  * function).
  */
-create table app_public.user_authentications (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references app_public.users on delete cascade,
-  service text not null,
-  identifier text not null,
-  details jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint uniq_user_authentications unique(service, identifier)
+CREATE TABLE app_public.user_authentications
+(
+    id         uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+    user_id    uuid        NOT NULL REFERENCES app_public.users ON DELETE CASCADE,
+    service    text        NOT NULL,
+    identifier text        NOT NULL,
+    details    jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT NOW(),
+    updated_at timestamptz NOT NULL DEFAULT NOW(),
+    CONSTRAINT uniq_user_authentications UNIQUE (service, identifier)
 );
 
-alter table app_public.user_authentications enable row level security;
+ALTER TABLE app_public.user_authentications
+    ENABLE ROW LEVEL SECURITY;
 
 -- Make it efficient to find all the authentications for a particular user.
-create index on app_public.user_authentications(user_id);
+CREATE INDEX ON app_public.user_authentications (user_id);
 
 -- Keep created_at and updated_at up to date.
-create trigger _100_timestamps
-  before insert or update on app_public.user_authentications
-  for each row
-  execute procedure app_private.tg__timestamps();
+CREATE TRIGGER _100_timestamps
+    BEFORE INSERT OR UPDATE
+    ON app_public.user_authentications
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__timestamps();
 
-comment on table app_public.user_authentications is
-  E'Contains information about the login providers this user has used, so that they may disconnect them should they wish.';
-comment on column app_public.user_authentications.service is
-  E'The login service used, e.g. `twitter` or `github`.';
-comment on column app_public.user_authentications.identifier is
-  E'A unique identifier for the user within the login service.';
-comment on column app_public.user_authentications.details is
-  E'Additional profile details extracted from this login method';
+COMMENT ON TABLE app_public.user_authentications IS
+    E'Contains information about the login providers this user has used, so that they may disconnect them should they wish.';
+COMMENT ON COLUMN app_public.user_authentications.service IS
+    E'The login service used, e.g. `twitter` or `github`.';
+COMMENT ON COLUMN app_public.user_authentications.identifier IS
+    E'A unique identifier for the user within the login service.';
+COMMENT ON COLUMN app_public.user_authentications.details IS
+    E'Additional profile details extracted from this login method';
 
 -- Users may view and delete their social logins.
-create policy select_own on app_public.user_authentications for select using (user_id = app_public.current_user_id());
-create policy delete_own on app_public.user_authentications for delete using (user_id = app_public.current_user_id());
+CREATE POLICY select_own ON app_public.user_authentications FOR SELECT USING (user_id = app_public.current_user_id());
+CREATE POLICY delete_own ON app_public.user_authentications FOR DELETE USING (user_id = app_public.current_user_id());
 -- TODO: on delete, check this isn't the last one, or that they have a verified
 -- email address or password. For now we're not worrying about that since all
 -- the OAuth providers we use verify the email address.
 
 -- Notify the user if a social login is removed.
-create trigger _500_audit_removed
-  after delete on app_public.user_authentications
-  for each row
-  execute procedure app_private.tg__add_audit_job(
-    'unlinked_account',
-    'user_id',
-    'service',
-    'identifier'
-  );
+CREATE TRIGGER _500_audit_removed
+    AFTER DELETE
+    ON app_public.user_authentications
+    FOR EACH ROW
+EXECUTE PROCEDURE app_private.tg__add_audit_job(
+        'unlinked_account',
+        'user_id',
+        'service',
+        'identifier'
+    );
 -- NOTE: we don't need to notify when a linked account is added here because
 -- that's handled in the link_or_register_user function.
 
-grant select on app_public.user_authentications to :DATABASE_VISITOR;
-grant delete on app_public.user_authentications to :DATABASE_VISITOR;
+GRANT SELECT ON app_public.user_authentications TO :DATABASE_VISITOR;
+GRANT DELETE ON app_public.user_authentications TO :DATABASE_VISITOR;
 
 /**********/
 
 -- This table contains secret information for each user_authentication; could
 -- be things like access tokens, refresh tokens, profile information. Whatever
 -- the passport strategy deems necessary.
-create table app_private.user_authentication_secrets (
-  user_authentication_id uuid not null primary key references app_public.user_authentications on delete cascade,
-  details jsonb not null default '{}'::jsonb
+CREATE TABLE app_private.user_authentication_secrets
+(
+    user_authentication_id uuid  NOT NULL PRIMARY KEY REFERENCES app_public.user_authentications ON DELETE CASCADE,
+    details                jsonb NOT NULL DEFAULT '{}'::jsonb
 );
-alter table app_private.user_authentication_secrets enable row level security;
+ALTER TABLE app_private.user_authentication_secrets
+    ENABLE ROW LEVEL SECURITY;
 
 -- NOTE: user_authentication_secrets doesn't need an auto-inserter as we handle
 -- that everywhere that can create a user_authentication row.
@@ -558,76 +633,90 @@ alter table app_private.user_authentication_secrets enable row level security;
  * so we only let code call into `login` that we trust to not roll back the
  * transaction afterwards.
  */
-create function app_private.login(username citext, password text) returns app_private.sessions as $$
-declare
-  v_user app_public.users;
-  v_user_secret app_private.user_secrets;
-  v_login_attempt_window_duration interval = interval '5 minutes';
-  v_session app_private.sessions;
-begin
-  if username like '%@%' then
-    -- It's an email
-    select users.* into v_user
-    from app_public.users
-    inner join app_public.user_emails
-    on (user_emails.user_id = users.id)
-    where user_emails.email = login.username
-    order by
-      user_emails.is_verified desc, -- Prefer verified email
-      user_emails.created_at asc -- Failing that, prefer the first registered (unverified users _should_ verify before logging in)
-    limit 1;
-  else
-    -- It's a username
-    select users.* into v_user
-    from app_public.users
-    where users.username = login.username;
-  end if;
+CREATE FUNCTION app_private.login(username citext, password text) RETURNS app_private.sessions AS
+$$
+DECLARE
+    v_user                          app_public.users;
+    v_user_secret                   app_private.user_secrets;
+    v_login_attempt_window_duration interval = INTERVAL '5 minutes';
+    v_session                       app_private.sessions;
+BEGIN
+    IF username LIKE '%@%' THEN
+        -- It's an email
+        SELECT users.*
+        INTO v_user
+        FROM app_public.users
+                 INNER JOIN app_public.user_emails
+                            ON (user_emails.user_id = users.id)
+        WHERE user_emails.email = login.username
+        ORDER BY user_emails.is_verified DESC, -- Prefer verified email
+                 user_emails.created_at ASC    -- Failing that, prefer the first registered (unverified users _should_ verify before logging in)
+        LIMIT 1;
+    ELSE
+        -- It's a username
+        SELECT users.*
+        INTO v_user
+        FROM app_public.users
+        WHERE users.username = login.username;
+    END IF;
 
-  if not (v_user is null) then
-    -- Load their secrets
-    select * into v_user_secret from app_private.user_secrets
-    where user_secrets.user_id = v_user.id;
+    IF NOT (v_user IS NULL) THEN
+        -- Load their secrets
+        SELECT *
+        INTO v_user_secret
+        FROM app_private.user_secrets
+        WHERE user_secrets.user_id = v_user.id;
 
-    -- Have there been too many login attempts?
-    if (
-      v_user_secret.first_failed_password_attempt is not null
-    and
-      v_user_secret.first_failed_password_attempt > NOW() - v_login_attempt_window_duration
-    and
-      v_user_secret.failed_password_attempts >= 3
-    ) then
-      raise exception 'User account locked - too many login attempts. Try again after 5 minutes.' using errcode = 'LOCKD';
-    end if;
+        -- Have there been too many login attempts?
+        IF (
+                v_user_secret.first_failed_password_attempt IS NOT NULL
+                AND
+                v_user_secret.first_failed_password_attempt > NOW() - v_login_attempt_window_duration
+                AND
+                v_user_secret.failed_password_attempts >= 3
+            ) THEN
+            RAISE EXCEPTION 'User account locked - too many login attempts. Try again after 5 minutes.' USING ERRCODE = 'LOCKD';
+        END IF;
 
-    -- Not too many login attempts, let's check the password.
-    -- NOTE: `password_hash` could be null, this is fine since `NULL = NULL` is null, and null is falsy.
-    if v_user_secret.password_hash = crypt(password, v_user_secret.password_hash) then
-      -- Excellent - they're logged in! Let's reset the attempt tracking
-      update app_private.user_secrets
-      set failed_password_attempts = 0, first_failed_password_attempt = null, last_login_at = now()
-      where user_id = v_user.id;
-      -- Create a session for the user
-      insert into app_private.sessions (user_id) values (v_user.id) returning * into v_session;
-      -- And finally return the session
-      return v_session;
-    else
-      -- Wrong password, bump all the attempt tracking figures
-      update app_private.user_secrets
-      set
-        failed_password_attempts = (case when first_failed_password_attempt is null or first_failed_password_attempt < now() - v_login_attempt_window_duration then 1 else failed_password_attempts + 1 end),
-        first_failed_password_attempt = (case when first_failed_password_attempt is null or first_failed_password_attempt < now() - v_login_attempt_window_duration then now() else first_failed_password_attempt end)
-      where user_id = v_user.id;
-      return null; -- Must not throw otherwise transaction will be aborted and attempts won't be recorded
-    end if;
-  else
-    -- No user with that email/username was found
-    return null;
-  end if;
-end;
-$$ language plpgsql strict volatile;
+        -- Not too many login attempts, let's check the password.
+        -- NOTE: `password_hash` could be null, this is fine since `NULL = NULL` is null, and null is falsy.
+        IF v_user_secret.password_hash = crypt(password, v_user_secret.password_hash) THEN
+            -- Excellent - they're logged in! Let's reset the attempt tracking
+            UPDATE app_private.user_secrets
+            SET failed_password_attempts      = 0,
+                first_failed_password_attempt = NULL,
+                last_login_at                 = NOW()
+            WHERE user_id = v_user.id;
+            -- Create a session for the user
+            INSERT INTO app_private.sessions (user_id) VALUES (v_user.id) RETURNING * INTO v_session;
+            -- And finally return the session
+            RETURN v_session;
+        ELSE
+            -- Wrong password, bump all the attempt tracking figures
+            UPDATE app_private.user_secrets
+            SET failed_password_attempts      = (CASE
+                                                     WHEN first_failed_password_attempt IS NULL OR
+                                                          first_failed_password_attempt <
+                                                          NOW() - v_login_attempt_window_duration THEN 1
+                                                     ELSE failed_password_attempts + 1 END),
+                first_failed_password_attempt = (CASE
+                                                     WHEN first_failed_password_attempt IS NULL OR
+                                                          first_failed_password_attempt <
+                                                          NOW() - v_login_attempt_window_duration THEN NOW()
+                                                     ELSE first_failed_password_attempt END)
+            WHERE user_id = v_user.id;
+            RETURN NULL; -- Must not throw otherwise transaction will be aborted and attempts won't be recorded
+        END IF;
+    ELSE
+        -- No user with that email/username was found
+        RETURN NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE;
 
-comment on function app_private.login(username citext, password text) is
-  E'Returns a user that matches the username/password combo, or null on failure.';
+COMMENT ON FUNCTION app_private.login(username citext, password text) IS
+    E'Returns a user that matches the username/password combo, or null on failure.';
 
 --! split: 1110-logout.sql
 /*
@@ -635,14 +724,17 @@ comment on function app_private.login(username citext, password text) is
  * transaction. This is a `SECURITY DEFINER` function, so we check that the
  * user is allowed to do it by matching the current_session_id().
  */
-create function app_public.logout() returns void as $$
-begin
-  -- Delete the session
-  delete from app_private.sessions where uuid = app_public.current_session_id();
-  -- Clear the identifier from the transaction
-  perform set_config('jwt.claims.session_id', '', true);
-end;
-$$ language plpgsql security definer volatile set search_path to pg_catalog, public, pg_temp;
+CREATE FUNCTION app_public.logout() RETURNS void AS
+$$
+BEGIN
+    -- Delete the session
+    DELETE FROM app_private.sessions WHERE uuid = app_public.current_session_id();
+    -- Clear the identifier from the transaction
+    PERFORM SET_CONFIG('jwt.claims.session_id', '', TRUE);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+                    VOLATILE
+                    SET search_path TO pg_catalog, public, pg_temp;
 
 --! split: 1120-forgot_password.sql
 /*
@@ -664,110 +756,116 @@ $$ language plpgsql security definer volatile set search_path to pg_catalog, pub
  * the email being sent, so it's harmless.)
  */
 
-create table app_private.unregistered_email_password_resets (
-  email citext constraint unregistered_email_pkey primary key,
-  attempts int not null default 1,
-  latest_attempt timestamptz not null
+CREATE TABLE app_private.unregistered_email_password_resets
+(
+    email          citext
+        CONSTRAINT unregistered_email_pkey PRIMARY KEY,
+    attempts       int         NOT NULL DEFAULT 1,
+    latest_attempt timestamptz NOT NULL
 );
-comment on table app_private.unregistered_email_password_resets is
-  E'If someone tries to recover the password for an email that is not registered in our system, this table enables us to rate-limit outgoing emails to avoid spamming.';
-comment on column app_private.unregistered_email_password_resets.attempts is
-  E'We store the number of attempts to help us detect accounts being attacked.';
-comment on column app_private.unregistered_email_password_resets.latest_attempt is
-  E'We store the time the last password reset was sent to this email to prevent the email getting flooded.';
+COMMENT ON TABLE app_private.unregistered_email_password_resets IS
+    E'If someone tries to recover the password for an email that is not registered in our system, this table enables us to rate-limit outgoing emails to avoid spamming.';
+COMMENT ON COLUMN app_private.unregistered_email_password_resets.attempts IS
+    E'We store the number of attempts to help us detect accounts being attacked.';
+COMMENT ON COLUMN app_private.unregistered_email_password_resets.latest_attempt IS
+    E'We store the time the last password reset was sent to this email to prevent the email getting flooded.';
 
 /**********/
 
-create function app_public.forgot_password(email citext) returns void as $$
-declare
-  v_user_email app_public.user_emails;
-  v_token text;
-  v_token_min_duration_between_emails interval = interval '3 minutes';
-  v_token_max_duration interval = interval '3 days';
-  v_now timestamptz = clock_timestamp(); -- Function can be called multiple during transaction
-  v_latest_attempt timestamptz;
-begin
-  -- Find the matching user_email:
-  select user_emails.* into v_user_email
-  from app_public.user_emails
-  where user_emails.email = forgot_password.email
-  order by is_verified desc, id desc;
+CREATE FUNCTION app_public.forgot_password(email citext) RETURNS void AS
+$$
+DECLARE
+    v_user_email                        app_public.user_emails;
+    v_token                             text;
+    v_token_min_duration_between_emails interval    = INTERVAL '3 minutes';
+    v_token_max_duration                interval    = INTERVAL '3 days';
+    v_now                               timestamptz = CLOCK_TIMESTAMP(); -- Function can be called multiple during transaction
+    v_latest_attempt                    timestamptz;
+BEGIN
+    -- Find the matching user_email:
+    SELECT user_emails.*
+    INTO v_user_email
+    FROM app_public.user_emails
+    WHERE user_emails.email = forgot_password.email
+    ORDER BY is_verified DESC, id DESC;
 
-  -- If there is no match:
-  if v_user_email is null then
-    -- This email doesn't exist in the system; trigger an email stating as much.
+    -- If there is no match:
+    IF v_user_email IS NULL THEN
+        -- This email doesn't exist in the system; trigger an email stating as much.
 
-    -- We do not allow this email to be triggered more than once every 15
-    -- minutes, so we need to track it:
-    insert into app_private.unregistered_email_password_resets (email, latest_attempt)
-      values (forgot_password.email, v_now)
-      on conflict on constraint unregistered_email_pkey
-      do update
-        set latest_attempt = v_now, attempts = unregistered_email_password_resets.attempts + 1
-        where unregistered_email_password_resets.latest_attempt < v_now - interval '15 minutes'
-      returning latest_attempt into v_latest_attempt;
+        -- We do not allow this email to be triggered more than once every 15
+        -- minutes, so we need to track it:
+        INSERT INTO app_private.unregistered_email_password_resets (email, latest_attempt)
+        VALUES (forgot_password.email, v_now)
+        ON CONFLICT ON CONSTRAINT unregistered_email_pkey
+            DO UPDATE
+            SET latest_attempt = v_now, attempts = unregistered_email_password_resets.attempts + 1
+        WHERE unregistered_email_password_resets.latest_attempt < v_now - INTERVAL '15 minutes'
+        RETURNING latest_attempt INTO v_latest_attempt;
 
-    if v_latest_attempt = v_now then
-      perform graphile_worker.add_job(
-        'user__forgot_password_unregistered_email',
-        json_build_object('email', forgot_password.email::text)
-      );
-    end if;
+        IF v_latest_attempt = v_now THEN
+            PERFORM graphile_worker.add_job(
+                    'user__forgot_password_unregistered_email',
+                    JSON_BUILD_OBJECT('email', forgot_password.email::text)
+                );
+        END IF;
 
-    -- TODO: we should clear out the unregistered_email_password_resets table periodically.
+        -- TODO: we should clear out the unregistered_email_password_resets table periodically.
 
-    return;
-  end if;
+        RETURN;
+    END IF;
 
-  -- There was a match.
-  -- See if we've triggered a reset recently:
-  if exists(
-    select 1
-    from app_private.user_email_secrets
-    where user_email_id = v_user_email.id
-    and password_reset_email_sent_at is not null
-    and password_reset_email_sent_at > v_now - v_token_min_duration_between_emails
-  ) then
-    -- If so, take no action.
-    return;
-  end if;
+    -- There was a match.
+    -- See if we've triggered a reset recently:
+    IF EXISTS(
+            SELECT 1
+            FROM app_private.user_email_secrets
+            WHERE user_email_id = v_user_email.id
+              AND password_reset_email_sent_at IS NOT NULL
+              AND password_reset_email_sent_at > v_now - v_token_min_duration_between_emails
+        ) THEN
+        -- If so, take no action.
+        RETURN;
+    END IF;
 
-  -- Fetch or generate reset token:
-  update app_private.user_secrets
-  set
-    reset_password_token = (
-      case
-      when reset_password_token is null or reset_password_token_generated < v_now - v_token_max_duration
-      then encode(gen_random_bytes(7), 'hex')
-      else reset_password_token
-      end
-    ),
-    reset_password_token_generated = (
-      case
-      when reset_password_token is null or reset_password_token_generated < v_now - v_token_max_duration
-      then v_now
-      else reset_password_token_generated
-      end
-    )
-  where user_id = v_user_email.user_id
-  returning reset_password_token into v_token;
+    -- Fetch or generate reset token:
+    UPDATE app_private.user_secrets
+    SET reset_password_token           = (
+        CASE
+            WHEN reset_password_token IS NULL OR reset_password_token_generated < v_now - v_token_max_duration
+                THEN ENCODE(gen_random_bytes(7), 'hex')
+            ELSE reset_password_token
+            END
+        ),
+        reset_password_token_generated = (
+            CASE
+                WHEN reset_password_token IS NULL OR reset_password_token_generated < v_now - v_token_max_duration
+                    THEN v_now
+                ELSE reset_password_token_generated
+                END
+            )
+    WHERE user_id = v_user_email.user_id
+    RETURNING reset_password_token INTO v_token;
 
-  -- Don't allow spamming an email:
-  update app_private.user_email_secrets
-  set password_reset_email_sent_at = v_now
-  where user_email_id = v_user_email.id;
+    -- Don't allow spamming an email:
+    UPDATE app_private.user_email_secrets
+    SET password_reset_email_sent_at = v_now
+    WHERE user_email_id = v_user_email.id;
 
-  -- Trigger email send:
-  perform graphile_worker.add_job(
-    'user__forgot_password',
-    json_build_object('id', v_user_email.user_id, 'email', v_user_email.email::text, 'token', v_token)
-  );
+    -- Trigger email send:
+    PERFORM graphile_worker.add_job(
+            'user__forgot_password',
+            JSON_BUILD_OBJECT('id', v_user_email.user_id, 'email', v_user_email.email::text, 'token', v_token)
+        );
 
-end;
-$$ language plpgsql strict security definer volatile set search_path to pg_catalog, public, pg_temp;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    SECURITY DEFINER
+                    VOLATILE
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_public.forgot_password(email public.citext) is
-  E'If you''ve forgotten your password, give us one of your email addresses and we''ll send you a reset token. Note this only works if you have added an email address!';
+COMMENT ON FUNCTION app_public.forgot_password(email public.citext) IS
+    E'If you''ve forgotten your password, give us one of your email addresses and we''ll send you a reset token. Note this only works if you have added an email address!';
 
 --! split: 1130-reset_password.sql
 /*
@@ -783,88 +881,101 @@ comment on function app_public.forgot_password(email public.citext) is
  * field in `PassportLoginPlugin.ts`.
  */
 
-create function app_private.assert_valid_password(new_password text) returns void as $$
-begin
-  -- TODO: add better assertions!
-  if length(new_password) < 8 then
-    raise exception 'Password is too weak' using errcode = 'WEAKP';
-  end if;
-end;
-$$ language plpgsql volatile;
+CREATE FUNCTION app_private.assert_valid_password(new_password text) RETURNS void AS
+$$
+BEGIN
+    -- TODO: add better assertions!
+    IF LENGTH(new_password) < 8 THEN
+        RAISE EXCEPTION 'Password is too weak' USING ERRCODE = 'WEAKP';
+    END IF;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
 
-create function app_private.reset_password(user_id uuid, reset_token text, new_password text) returns boolean as $$
-declare
-  v_user app_public.users;
-  v_user_secret app_private.user_secrets;
-  v_token_max_duration interval = interval '3 days';
-begin
-  select users.* into v_user
-  from app_public.users
-  where id = user_id;
+CREATE FUNCTION app_private.reset_password(user_id uuid, reset_token text, new_password text) RETURNS boolean AS
+$$
+DECLARE
+    v_user               app_public.users;
+    v_user_secret        app_private.user_secrets;
+    v_token_max_duration interval = INTERVAL '3 days';
+BEGIN
+    SELECT users.*
+    INTO v_user
+    FROM app_public.users
+    WHERE id = user_id;
 
-  if not (v_user is null) then
-    -- Load their secrets
-    select * into v_user_secret from app_private.user_secrets
-    where user_secrets.user_id = v_user.id;
+    IF NOT (v_user IS NULL) THEN
+        -- Load their secrets
+        SELECT *
+        INTO v_user_secret
+        FROM app_private.user_secrets
+        WHERE user_secrets.user_id = v_user.id;
 
-    -- Have there been too many reset attempts?
-    if (
-      v_user_secret.first_failed_reset_password_attempt is not null
-    and
-      v_user_secret.first_failed_reset_password_attempt > NOW() - v_token_max_duration
-    and
-      v_user_secret.failed_reset_password_attempts >= 20
-    ) then
-      raise exception 'Password reset locked - too many reset attempts' using errcode = 'LOCKD';
-    end if;
+        -- Have there been too many reset attempts?
+        IF (
+                v_user_secret.first_failed_reset_password_attempt IS NOT NULL
+                AND
+                v_user_secret.first_failed_reset_password_attempt > NOW() - v_token_max_duration
+                AND
+                v_user_secret.failed_reset_password_attempts >= 20
+            ) THEN
+            RAISE EXCEPTION 'Password reset locked - too many reset attempts' USING ERRCODE = 'LOCKD';
+        END IF;
 
-    -- Not too many reset attempts, let's check the token
-    if v_user_secret.reset_password_token = reset_token then
-      -- Excellent - they're legit
+        -- Not too many reset attempts, let's check the token
+        IF v_user_secret.reset_password_token = reset_token THEN
+            -- Excellent - they're legit
 
-      perform app_private.assert_valid_password(new_password);
+            PERFORM app_private.assert_valid_password(new_password);
 
-      -- Let's reset the password as requested
-      update app_private.user_secrets
-      set
-        password_hash = crypt(new_password, gen_salt('bf')),
-        failed_password_attempts = 0,
-        first_failed_password_attempt = null,
-        reset_password_token = null,
-        reset_password_token_generated = null,
-        failed_reset_password_attempts = 0,
-        first_failed_reset_password_attempt = null
-      where user_secrets.user_id = v_user.id;
+            -- Let's reset the password as requested
+            UPDATE app_private.user_secrets
+            SET password_hash                       = crypt(new_password, gen_salt('bf')),
+                failed_password_attempts            = 0,
+                first_failed_password_attempt       = NULL,
+                reset_password_token                = NULL,
+                reset_password_token_generated      = NULL,
+                failed_reset_password_attempts      = 0,
+                first_failed_reset_password_attempt = NULL
+            WHERE user_secrets.user_id = v_user.id;
 
-      -- Revoke the users' sessions
-      delete from app_private.sessions
-      where sessions.user_id = v_user.id;
+            -- Revoke the users' sessions
+            DELETE
+            FROM app_private.sessions
+            WHERE sessions.user_id = v_user.id;
 
-      -- Notify user their password was reset
-      perform graphile_worker.add_job(
-        'user__audit',
-        json_build_object(
-          'type', 'reset_password',
-          'user_id', v_user.id,
-          'current_user_id', app_public.current_user_id()
-        ));
+            -- Notify user their password was reset
+            PERFORM graphile_worker.add_job(
+                    'user__audit',
+                    JSON_BUILD_OBJECT(
+                            'type', 'reset_password',
+                            'user_id', v_user.id,
+                            'current_user_id', app_public.current_user_id()
+                        ));
 
-      return true;
-    else
-      -- Wrong token, bump all the attempt tracking figures
-      update app_private.user_secrets
-      set
-        failed_reset_password_attempts = (case when first_failed_reset_password_attempt is null or first_failed_reset_password_attempt < now() - v_token_max_duration then 1 else failed_reset_password_attempts + 1 end),
-        first_failed_reset_password_attempt = (case when first_failed_reset_password_attempt is null or first_failed_reset_password_attempt < now() - v_token_max_duration then now() else first_failed_reset_password_attempt end)
-      where user_secrets.user_id = v_user.id;
-      return null;
-    end if;
-  else
-    -- No user with that id was found
-    return null;
-  end if;
-end;
-$$ language plpgsql strict volatile;
+            RETURN TRUE;
+        ELSE
+            -- Wrong token, bump all the attempt tracking figures
+            UPDATE app_private.user_secrets
+            SET failed_reset_password_attempts      = (CASE
+                                                           WHEN first_failed_reset_password_attempt IS NULL OR
+                                                                first_failed_reset_password_attempt <
+                                                                NOW() - v_token_max_duration THEN 1
+                                                           ELSE failed_reset_password_attempts + 1 END),
+                first_failed_reset_password_attempt = (CASE
+                                                           WHEN first_failed_reset_password_attempt IS NULL OR
+                                                                first_failed_reset_password_attempt <
+                                                                NOW() - v_token_max_duration THEN NOW()
+                                                           ELSE first_failed_reset_password_attempt END)
+            WHERE user_secrets.user_id = v_user.id;
+            RETURN NULL;
+        END IF;
+    ELSE
+        -- No user with that id was found
+        RETURN NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE;
 
 --! split: 1140-request_account_deletion.sql
 /*
@@ -875,94 +986,104 @@ $$ language plpgsql strict volatile;
  * `app_public.confirm_account_deletion` for the second half.
  */
 
-create function app_public.request_account_deletion() returns boolean as $$
-declare
-  v_user_email app_public.user_emails;
-  v_token text;
-  v_token_max_duration interval = interval '3 days';
-begin
-  if app_public.current_user_id() is null then
-    raise exception 'You must log in to delete your account' using errcode = 'LOGIN';
-  end if;
+CREATE FUNCTION app_public.request_account_deletion() RETURNS boolean AS
+$$
+DECLARE
+    v_user_email         app_public.user_emails;
+    v_token              text;
+    v_token_max_duration interval = INTERVAL '3 days';
+BEGIN
+    IF app_public.current_user_id() IS NULL THEN
+        RAISE EXCEPTION 'You must log in to delete your account' USING ERRCODE = 'LOGIN';
+    END IF;
 
-  -- Get the email to send account deletion token to
-  select * into v_user_email
-    from app_public.user_emails
-    where user_id = app_public.current_user_id()
-    order by is_primary desc, is_verified desc, id desc
-    limit 1;
+    -- Get the email to send account deletion token to
+    SELECT *
+    INTO v_user_email
+    FROM app_public.user_emails
+    WHERE user_id = app_public.current_user_id()
+    ORDER BY is_primary DESC, is_verified DESC, id DESC
+    LIMIT 1;
 
-  -- Fetch or generate token
-  update app_private.user_secrets
-  set
-    delete_account_token = (
-      case
-      when delete_account_token is null or delete_account_token_generated < NOW() - v_token_max_duration
-      then encode(gen_random_bytes(7), 'hex')
-      else delete_account_token
-      end
-    ),
-    delete_account_token_generated = (
-      case
-      when delete_account_token is null or delete_account_token_generated < NOW() - v_token_max_duration
-      then now()
-      else delete_account_token_generated
-      end
-    )
-  where user_id = app_public.current_user_id()
-  returning delete_account_token into v_token;
+    -- Fetch or generate token
+    UPDATE app_private.user_secrets
+    SET delete_account_token           = (
+        CASE
+            WHEN delete_account_token IS NULL OR delete_account_token_generated < NOW() - v_token_max_duration
+                THEN ENCODE(gen_random_bytes(7), 'hex')
+            ELSE delete_account_token
+            END
+        ),
+        delete_account_token_generated = (
+            CASE
+                WHEN delete_account_token IS NULL OR delete_account_token_generated < NOW() - v_token_max_duration
+                    THEN NOW()
+                ELSE delete_account_token_generated
+                END
+            )
+    WHERE user_id = app_public.current_user_id()
+    RETURNING delete_account_token INTO v_token;
 
-  -- Trigger email send
-  perform graphile_worker.add_job('user__send_delete_account_email', json_build_object('email', v_user_email.email::text, 'token', v_token));
-  return true;
-end;
-$$ language plpgsql strict security definer volatile set search_path to pg_catalog, public, pg_temp;
+    -- Trigger email send
+    PERFORM graphile_worker.add_job('user__send_delete_account_email',
+                                    JSON_BUILD_OBJECT('email', v_user_email.email::text, 'token', v_token));
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    SECURITY DEFINER
+                    VOLATILE
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_public.request_account_deletion() is
-  E'Begin the account deletion flow by requesting the confirmation email';
+COMMENT ON FUNCTION app_public.request_account_deletion() IS
+    E'Begin the account deletion flow by requesting the confirmation email';
 
 --! split: 1150-confirm_account_deletion.sql
 /*
  * This is the second half of the account deletion process, for the first half
  * see `app_public.request_account_deletion`.
  */
-create function app_public.confirm_account_deletion(token text) returns boolean as $$
-declare
-  v_user_secret app_private.user_secrets;
-  v_token_max_duration interval = interval '3 days';
-begin
-  if app_public.current_user_id() is null then
-    raise exception 'You must log in to delete your account' using errcode = 'LOGIN';
-  end if;
+CREATE FUNCTION app_public.confirm_account_deletion(token text) RETURNS boolean AS
+$$
+DECLARE
+    v_user_secret        app_private.user_secrets;
+    v_token_max_duration interval = INTERVAL '3 days';
+BEGIN
+    IF app_public.current_user_id() IS NULL THEN
+        RAISE EXCEPTION 'You must log in to delete your account' USING ERRCODE = 'LOGIN';
+    END IF;
 
-  select * into v_user_secret
-    from app_private.user_secrets
-    where user_secrets.user_id = app_public.current_user_id();
+    SELECT *
+    INTO v_user_secret
+    FROM app_private.user_secrets
+    WHERE user_secrets.user_id = app_public.current_user_id();
 
-  if v_user_secret is null then
-    -- Success: they're already deleted
-    return true;
-  end if;
+    IF v_user_secret IS NULL THEN
+        -- Success: they're already deleted
+        RETURN TRUE;
+    END IF;
 
-  -- Check the token
-  if (
-    -- token is still valid
-    v_user_secret.delete_account_token_generated > now() - v_token_max_duration
-  and
-    -- token matches
-    v_user_secret.delete_account_token = token
-  ) then
-    -- Token passes; delete their account :(
-    delete from app_public.users where id = app_public.current_user_id();
-    return true;
-  end if;
+    -- Check the token
+    IF (
+        -- token is still valid
+                v_user_secret.delete_account_token_generated > NOW() - v_token_max_duration
+            AND
+            -- token matches
+                v_user_secret.delete_account_token = token
+        ) THEN
+        -- Token passes; delete their account :(
+        DELETE FROM app_public.users WHERE id = app_public.current_user_id();
+        RETURN TRUE;
+    END IF;
 
-  raise exception 'The supplied token was incorrect - perhaps you''re logged in to the wrong account, or the token has expired?' using errcode = 'DNIED';
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
+    RAISE EXCEPTION 'The supplied token was incorrect - perhaps you''re logged in to the wrong account, or the token has expired?' USING ERRCODE = 'DNIED';
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_public.confirm_account_deletion(token text) is
-  E'If you''re certain you want to delete your account, use `requestAccountDeletion` to request an account deletion token, and then supply the token through this mutation to complete account deletion.';
+COMMENT ON FUNCTION app_public.confirm_account_deletion(token text) IS
+    E'If you''re certain you want to delete your account, use `requestAccountDeletion` to request an account deletion token, and then supply the token through this mutation to complete account deletion.';
 
 --! split: 1160-change_password.sql
 /*
@@ -971,57 +1092,64 @@ comment on function app_public.confirm_account_deletion(token text) is
  * the user type it twice, but that isn't necessary in the API.
  */
 
-create function app_public.change_password(old_password text, new_password text) returns boolean as $$
-declare
-  v_user app_public.users;
-  v_user_secret app_private.user_secrets;
-begin
-  select users.* into v_user
-  from app_public.users
-  where id = app_public.current_user_id();
+CREATE FUNCTION app_public.change_password(old_password text, new_password text) RETURNS boolean AS
+$$
+DECLARE
+    v_user        app_public.users;
+    v_user_secret app_private.user_secrets;
+BEGIN
+    SELECT users.*
+    INTO v_user
+    FROM app_public.users
+    WHERE id = app_public.current_user_id();
 
-  if not (v_user is null) then
-    -- Load their secrets
-    select * into v_user_secret from app_private.user_secrets
-    where user_secrets.user_id = v_user.id;
+    IF NOT (v_user IS NULL) THEN
+        -- Load their secrets
+        SELECT *
+        INTO v_user_secret
+        FROM app_private.user_secrets
+        WHERE user_secrets.user_id = v_user.id;
 
-    if v_user_secret.password_hash = crypt(old_password, v_user_secret.password_hash) then
-      perform app_private.assert_valid_password(new_password);
+        IF v_user_secret.password_hash = crypt(old_password, v_user_secret.password_hash) THEN
+            PERFORM app_private.assert_valid_password(new_password);
 
-      -- Reset the password as requested
-      update app_private.user_secrets
-      set
-        password_hash = crypt(new_password, gen_salt('bf'))
-      where user_secrets.user_id = v_user.id;
+            -- Reset the password as requested
+            UPDATE app_private.user_secrets
+            SET password_hash = crypt(new_password, gen_salt('bf'))
+            WHERE user_secrets.user_id = v_user.id;
 
-      -- Revoke all other sessions
-      delete from app_private.sessions
-      where sessions.user_id = v_user.id
-      and sessions.uuid <> app_public.current_session_id();
+            -- Revoke all other sessions
+            DELETE
+            FROM app_private.sessions
+            WHERE sessions.user_id = v_user.id
+              AND sessions.uuid <> app_public.current_session_id();
 
-      -- Notify user their password was changed
-      perform graphile_worker.add_job(
-        'user__audit',
-        json_build_object(
-          'type', 'change_password',
-          'user_id', v_user.id,
-          'current_user_id', app_public.current_user_id()
-        ));
+            -- Notify user their password was changed
+            PERFORM graphile_worker.add_job(
+                    'user__audit',
+                    JSON_BUILD_OBJECT(
+                            'type', 'change_password',
+                            'user_id', v_user.id,
+                            'current_user_id', app_public.current_user_id()
+                        ));
 
-      return true;
-    else
-      raise exception 'Incorrect password' using errcode = 'CREDS';
-    end if;
-  else
-    raise exception 'You must log in to change your password' using errcode = 'LOGIN';
-  end if;
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
+            RETURN TRUE;
+        ELSE
+            RAISE EXCEPTION 'Incorrect password' USING ERRCODE = 'CREDS';
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'You must log in to change your password' USING ERRCODE = 'LOGIN';
+    END IF;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_public.change_password(old_password text, new_password text) is
-  E'Enter your old password and a new password to change your password.';
+COMMENT ON FUNCTION app_public.change_password(old_password text, new_password text) IS
+    E'Enter your old password and a new password to change your password.';
 
-grant execute on function app_public.change_password(text, text) to :DATABASE_VISITOR;
+GRANT EXECUTE ON FUNCTION app_public.change_password(text, text) TO :DATABASE_VISITOR;
 
 --! split: 1200-user-registration.sql
 /*
@@ -1034,50 +1162,52 @@ grant execute on function app_public.change_password(text, text) to :DATABASE_VI
  * setting the password (if any), storing the email address, etc.
  */
 
-create function app_private.really_create_user(
-  username citext,
-  email text,
-  email_is_verified bool,
-  name text,
-  avatar_url text,
-  password text default null
-) returns app_public.users as $$
-declare
-  v_user app_public.users;
-  v_username citext = username;
-begin
-  if password is not null then
-    perform app_private.assert_valid_password(password);
-  end if;
-  if email is null then
-    raise exception 'Email is required' using errcode = 'MODAT';
-  end if;
+CREATE FUNCTION app_private.really_create_user(
+    username citext,
+    email text,
+    email_is_verified bool,
+    name text,
+    avatar_url text,
+    password text DEFAULT NULL
+) RETURNS app_public.users AS
+$$
+DECLARE
+    v_user     app_public.users;
+    v_username citext = username;
+BEGIN
+    IF password IS NOT NULL THEN
+        PERFORM app_private.assert_valid_password(password);
+    END IF;
+    IF email IS NULL THEN
+        RAISE EXCEPTION 'Email is required' USING ERRCODE = 'MODAT';
+    END IF;
 
-  -- Insert the new user
-  insert into app_public.users (username, name, avatar_url) values
-    (v_username, name, avatar_url)
-    returning * into v_user;
+    -- Insert the new user
+    INSERT INTO app_public.users (username, name, avatar_url)
+    VALUES (v_username, name, avatar_url)
+    RETURNING * INTO v_user;
 
-	-- Add the user's email
-  insert into app_public.user_emails (user_id, email, is_verified, is_primary)
-  values (v_user.id, email, email_is_verified, email_is_verified);
+    -- Add the user's email
+    INSERT INTO app_public.user_emails (user_id, email, is_verified, is_primary)
+    VALUES (v_user.id, email, email_is_verified, email_is_verified);
 
-  -- Store the password
-  if password is not null then
-    update app_private.user_secrets
-    set password_hash = crypt(password, gen_salt('bf'))
-    where user_id = v_user.id;
-  end if;
+    -- Store the password
+    IF password IS NOT NULL THEN
+        UPDATE app_private.user_secrets
+        SET password_hash = crypt(password, gen_salt('bf'))
+        WHERE user_id = v_user.id;
+    END IF;
 
-  -- Refresh the user
-  select * into v_user from app_public.users where id = v_user.id;
+    -- Refresh the user
+    SELECT * INTO v_user FROM app_public.users WHERE id = v_user.id;
 
-  return v_user;
-end;
-$$ language plpgsql volatile set search_path to pg_catalog, public, pg_temp;
+    RETURN v_user;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_private.really_create_user(username citext, email text, email_is_verified bool, name text, avatar_url text, password text) is
-  E'Creates a user account. All arguments are optional, it trusts the calling method to perform sanitisation.';
+COMMENT ON FUNCTION app_private.really_create_user(username citext, email text, email_is_verified bool, name text, avatar_url text, password text) IS
+    E'Creates a user account. All arguments are optional, it trusts the calling method to perform sanitisation.';
 
 /**********/
 
@@ -1087,75 +1217,81 @@ comment on function app_private.really_create_user(username citext, email text, 
  * using OAuth or similar credentials.
  */
 
-create function app_private.register_user(
-  f_service character varying,
-  f_identifier character varying,
-  f_profile json,
-  f_auth_details json,
-  f_email_is_verified boolean default false
-) returns app_public.users as $$
-declare
-  v_user app_public.users;
-  v_email citext;
-  v_name text;
-  v_username citext;
-  v_avatar_url text;
-  v_user_authentication_id uuid;
-begin
-  -- Extract data from the user’s OAuth profile data.
-  v_email := f_profile ->> 'email';
-  v_name := f_profile ->> 'name';
-  v_username := f_profile ->> 'username';
-  v_avatar_url := f_profile ->> 'avatar_url';
+CREATE FUNCTION app_private.register_user(
+    f_service character varying,
+    f_identifier character varying,
+    f_profile json,
+    f_auth_details json,
+    f_email_is_verified boolean DEFAULT FALSE
+) RETURNS app_public.users AS
+$$
+DECLARE
+    v_user                   app_public.users;
+    v_email                  citext;
+    v_name                   text;
+    v_username               citext;
+    v_avatar_url             text;
+    v_user_authentication_id uuid;
+BEGIN
+    -- Extract data from the user’s OAuth profile data.
+    v_email := f_profile ->> 'email';
+    v_name := f_profile ->> 'name';
+    v_username := f_profile ->> 'username';
+    v_avatar_url := f_profile ->> 'avatar_url';
 
-  -- Sanitise the username, and make it unique if necessary.
-  if v_username is null then
-    v_username = coalesce(v_name, 'user');
-  end if;
-  v_username = regexp_replace(v_username, '^[^a-z]+', '', 'gi');
-  v_username = regexp_replace(v_username, '[^a-z0-9]+', '_', 'gi');
-  if v_username is null or length(v_username) < 3 then
-    v_username = 'user';
-  end if;
-  select (
-    case
-    when i = 0 then v_username
-    else v_username || i::text
-    end
-  ) into v_username from generate_series(0, 1000) i
-  where not exists(
-    select 1
-    from app_public.users
-    where users.username = (
-      case
-      when i = 0 then v_username
-      else v_username || i::text
-      end
-    )
-  )
-  limit 1;
+    -- Sanitise the username, and make it unique if necessary.
+    IF v_username IS NULL THEN
+        v_username = COALESCE(v_name, 'user');
+    END IF;
+    v_username = REGEXP_REPLACE(v_username, '^[^a-z]+', '', 'gi');
+    v_username = REGEXP_REPLACE(v_username, '[^a-z0-9]+', '_', 'gi');
+    IF v_username IS NULL OR LENGTH(v_username) < 3 THEN
+        v_username = 'user';
+    END IF;
+    SELECT (
+               CASE
+                   WHEN i = 0 THEN v_username
+                   ELSE v_username || i::text
+                   END
+               )
+    INTO v_username
+    FROM GENERATE_SERIES(0, 1000) i
+    WHERE NOT EXISTS(
+            SELECT 1
+            FROM app_public.users
+            WHERE users.username = (
+                CASE
+                    WHEN i = 0 THEN v_username
+                    ELSE v_username || i::text
+                    END
+                )
+        )
+    LIMIT 1;
 
-  -- Create the user account
-  v_user = app_private.really_create_user(
-    username => v_username,
-    email => v_email,
-    email_is_verified => f_email_is_verified,
-    name => v_name,
-    avatar_url => v_avatar_url
-  );
+    -- Create the user account
+    v_user = app_private.really_create_user(
+            username => v_username,
+            email => v_email,
+            email_is_verified => f_email_is_verified,
+            name => v_name,
+            avatar_url => v_avatar_url
+        );
 
-  -- Insert the user’s private account data (e.g. OAuth tokens)
-  insert into app_public.user_authentications (user_id, service, identifier, details) values
-    (v_user.id, f_service, f_identifier, f_profile) returning id into v_user_authentication_id;
-  insert into app_private.user_authentication_secrets (user_authentication_id, details) values
-    (v_user_authentication_id, f_auth_details);
+    -- Insert the user’s private account data (e.g. OAuth tokens)
+    INSERT INTO app_public.user_authentications (user_id, service, identifier, details)
+    VALUES (v_user.id, f_service, f_identifier, f_profile)
+    RETURNING id INTO v_user_authentication_id;
+    INSERT INTO app_private.user_authentication_secrets (user_authentication_id, details)
+    VALUES (v_user_authentication_id, f_auth_details);
 
-  return v_user;
-end;
-$$ language plpgsql volatile security definer set search_path to pg_catalog, public, pg_temp;
+    RETURN v_user;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_private.register_user(f_service character varying, f_identifier character varying, f_profile json, f_auth_details json, f_email_is_verified boolean) is
-  E'Used to register a user from information gleaned from OAuth. Primarily used by link_or_register_user';
+COMMENT ON FUNCTION app_private.register_user(f_service character varying, f_identifier character varying, f_profile json, f_auth_details json, f_email_is_verified boolean) IS
+    E'Used to register a user from information gleaned from OAuth. Primarily used by link_or_register_user';
 
 /**********/
 
@@ -1173,107 +1309,111 @@ comment on function app_private.register_user(f_service character varying, f_ide
  * statemets towards the bottom of the function.
  */
 
-create function app_private.link_or_register_user(
-  f_user_id uuid,
-  f_service character varying,
-  f_identifier character varying,
-  f_profile json,
-  f_auth_details json
-) returns app_public.users as $$
-declare
-  v_matched_user_id uuid;
-  v_matched_authentication_id uuid;
-  v_email citext;
-  v_name text;
-  v_avatar_url text;
-  v_user app_public.users;
-  v_user_email app_public.user_emails;
-begin
-  -- See if a user account already matches these details
-  select id, user_id
-    into v_matched_authentication_id, v_matched_user_id
-    from app_public.user_authentications
-    where service = f_service
-    and identifier = f_identifier
-    limit 1;
+CREATE FUNCTION app_private.link_or_register_user(
+    f_user_id uuid,
+    f_service character varying,
+    f_identifier character varying,
+    f_profile json,
+    f_auth_details json
+) RETURNS app_public.users AS
+$$
+DECLARE
+    v_matched_user_id           uuid;
+    v_matched_authentication_id uuid;
+    v_email                     citext;
+    v_name                      text;
+    v_avatar_url                text;
+    v_user                      app_public.users;
+    v_user_email                app_public.user_emails;
+BEGIN
+    -- See if a user account already matches these details
+    SELECT id, user_id
+    INTO v_matched_authentication_id, v_matched_user_id
+    FROM app_public.user_authentications
+    WHERE service = f_service
+      AND identifier = f_identifier
+    LIMIT 1;
 
-  if v_matched_user_id is not null and f_user_id is not null and v_matched_user_id <> f_user_id then
-    raise exception 'A different user already has this account linked.' using errcode = 'TAKEN';
-  end if;
+    IF v_matched_user_id IS NOT NULL AND f_user_id IS NOT NULL AND v_matched_user_id <> f_user_id THEN
+        RAISE EXCEPTION 'A different user already has this account linked.' USING ERRCODE = 'TAKEN';
+    END IF;
 
-  v_email = f_profile ->> 'email';
-  v_name := f_profile ->> 'name';
-  v_avatar_url := f_profile ->> 'avatar_url';
+    v_email = f_profile ->> 'email';
+    v_name := f_profile ->> 'name';
+    v_avatar_url := f_profile ->> 'avatar_url';
 
-  if v_matched_authentication_id is null then
-    if f_user_id is not null then
-      -- Link new account to logged in user account
-      insert into app_public.user_authentications (user_id, service, identifier, details) values
-        (f_user_id, f_service, f_identifier, f_profile) returning id, user_id into v_matched_authentication_id, v_matched_user_id;
-      insert into app_private.user_authentication_secrets (user_authentication_id, details) values
-        (v_matched_authentication_id, f_auth_details);
-      perform graphile_worker.add_job(
-        'user__audit',
-        json_build_object(
-          'type', 'linked_account',
-          'user_id', f_user_id,
-          'extra1', f_service,
-          'extra2', f_identifier,
-          'current_user_id', app_public.current_user_id()
-        ));
-    elsif v_email is not null then
-      -- See if the email is registered
-      select * into v_user_email from app_public.user_emails where email = v_email and is_verified is true;
-      if v_user_email is not null then
-        -- User exists!
-        insert into app_public.user_authentications (user_id, service, identifier, details) values
-          (v_user_email.user_id, f_service, f_identifier, f_profile) returning id, user_id into v_matched_authentication_id, v_matched_user_id;
-        insert into app_private.user_authentication_secrets (user_authentication_id, details) values
-          (v_matched_authentication_id, f_auth_details);
-        perform graphile_worker.add_job(
-          'user__audit',
-          json_build_object(
-            'type', 'linked_account',
-            'user_id', f_user_id,
-            'extra1', f_service,
-            'extra2', f_identifier,
-            'current_user_id', app_public.current_user_id()
-          ));
-      end if;
-    end if;
-  end if;
-  if v_matched_user_id is null and f_user_id is null and v_matched_authentication_id is null then
-    -- Create and return a new user account
-    return app_private.register_user(f_service, f_identifier, f_profile, f_auth_details, true);
-  else
-    if v_matched_authentication_id is not null then
-      update app_public.user_authentications
-        set details = f_profile
-        where id = v_matched_authentication_id;
-      update app_private.user_authentication_secrets
-        set details = f_auth_details
-        where user_authentication_id = v_matched_authentication_id;
-      update app_public.users
-        set
-          name = coalesce(users.name, v_name),
-          avatar_url = coalesce(users.avatar_url, v_avatar_url)
-        where id = v_matched_user_id
-        returning  * into v_user;
-      return v_user;
-    else
-      -- v_matched_authentication_id is null
-      -- -> v_matched_user_id is null (they're paired)
-      -- -> f_user_id is not null (because the if clause above)
-      -- -> v_matched_authentication_id is not null (because of the separate if block above creating a user_authentications)
-      -- -> contradiction.
-      raise exception 'This should not occur';
-    end if;
-  end if;
-end;
-$$ language plpgsql volatile security definer set search_path to pg_catalog, public, pg_temp;
+    IF v_matched_authentication_id IS NULL THEN
+        IF f_user_id IS NOT NULL THEN
+            -- Link new account to logged in user account
+            INSERT INTO app_public.user_authentications (user_id, service, identifier, details)
+            VALUES (f_user_id, f_service, f_identifier, f_profile)
+            RETURNING id, user_id INTO v_matched_authentication_id, v_matched_user_id;
+            INSERT INTO app_private.user_authentication_secrets (user_authentication_id, details)
+            VALUES (v_matched_authentication_id, f_auth_details);
+            PERFORM graphile_worker.add_job(
+                    'user__audit',
+                    JSON_BUILD_OBJECT(
+                            'type', 'linked_account',
+                            'user_id', f_user_id,
+                            'extra1', f_service,
+                            'extra2', f_identifier,
+                            'current_user_id', app_public.current_user_id()
+                        ));
+        ELSIF v_email IS NOT NULL THEN
+            -- See if the email is registered
+            SELECT * INTO v_user_email FROM app_public.user_emails WHERE email = v_email AND is_verified IS TRUE;
+            IF v_user_email IS NOT NULL THEN
+                -- User exists!
+                INSERT INTO app_public.user_authentications (user_id, service, identifier, details)
+                VALUES (v_user_email.user_id, f_service, f_identifier, f_profile)
+                RETURNING id, user_id INTO v_matched_authentication_id, v_matched_user_id;
+                INSERT INTO app_private.user_authentication_secrets (user_authentication_id, details)
+                VALUES (v_matched_authentication_id, f_auth_details);
+                PERFORM graphile_worker.add_job(
+                        'user__audit',
+                        JSON_BUILD_OBJECT(
+                                'type', 'linked_account',
+                                'user_id', f_user_id,
+                                'extra1', f_service,
+                                'extra2', f_identifier,
+                                'current_user_id', app_public.current_user_id()
+                            ));
+            END IF;
+        END IF;
+    END IF;
+    IF v_matched_user_id IS NULL AND f_user_id IS NULL AND v_matched_authentication_id IS NULL THEN
+        -- Create and return a new user account
+        RETURN app_private.register_user(f_service, f_identifier, f_profile, f_auth_details, TRUE);
+    ELSE
+        IF v_matched_authentication_id IS NOT NULL THEN
+            UPDATE app_public.user_authentications
+            SET details = f_profile
+            WHERE id = v_matched_authentication_id;
+            UPDATE app_private.user_authentication_secrets
+            SET details = f_auth_details
+            WHERE user_authentication_id = v_matched_authentication_id;
+            UPDATE app_public.users
+            SET name       = COALESCE(users.name, v_name),
+                avatar_url = COALESCE(users.avatar_url, v_avatar_url)
+            WHERE id = v_matched_user_id
+            RETURNING * INTO v_user;
+            RETURN v_user;
+        ELSE
+            -- v_matched_authentication_id is null
+            -- -> v_matched_user_id is null (they're paired)
+            -- -> f_user_id is not null (because the if clause above)
+            -- -> v_matched_authentication_id is not null (because of the separate if block above creating a user_authentications)
+            -- -> contradiction.
+            RAISE EXCEPTION 'This should not occur';
+        END IF;
+    END IF;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
 
-comment on function app_private.link_or_register_user(f_user_id uuid, f_service character varying, f_identifier character varying, f_profile json, f_auth_details json) is
-  E'If you''re logged in, this will link an additional OAuth login to your account if necessary. If you''re logged out it may find if an account already exists (based on OAuth details or email address) and return that, or create a new user account if necessary.';
+COMMENT ON FUNCTION app_private.link_or_register_user(f_user_id uuid, f_service character varying, f_identifier character varying, f_profile json, f_auth_details json) IS
+    E'If you''re logged in, this will link an additional OAuth login to your account if necessary. If you''re logged out it may find if an account already exists (based on OAuth details or email address) and return that, or create a new user account if necessary.';
 
 --! split: 1210-make_email_primary.sql
 /*
@@ -1282,45 +1422,65 @@ comment on function app_private.link_or_register_user(f_user_id uuid, f_service 
  * is the primary email.
  */
 
-create function app_public.make_email_primary(email_id uuid) returns app_public.user_emails as $$
-declare
-  v_user_email app_public.user_emails;
-begin
-  select * into v_user_email from app_public.user_emails where id = email_id and user_id = app_public.current_user_id();
-  if v_user_email is null then
-    raise exception 'That''s not your email' using errcode = 'DNIED';
-    return null;
-  end if;
-  if v_user_email.is_verified is false then
-    raise exception 'You may not make an unverified email primary' using errcode = 'VRFY1';
-  end if;
-  update app_public.user_emails set is_primary = false where user_id = app_public.current_user_id() and is_primary is true and id <> email_id;
-  update app_public.user_emails set is_primary = true where user_id = app_public.current_user_id() and is_primary is not true and id = email_id returning * into v_user_email;
-  return v_user_email;
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
-comment on function app_public.make_email_primary(email_id uuid) is
-  E'Your primary email is where we''ll notify of account events; other emails may be used for discovery or login. Use this when you''re changing your email address.';
+CREATE FUNCTION app_public.make_email_primary(email_id uuid) RETURNS app_public.user_emails AS
+$$
+DECLARE
+    v_user_email app_public.user_emails;
+BEGIN
+    SELECT *
+    INTO v_user_email
+    FROM app_public.user_emails
+    WHERE id = email_id AND user_id = app_public.current_user_id();
+    IF v_user_email IS NULL THEN
+        RAISE EXCEPTION 'That''s not your email' USING ERRCODE = 'DNIED';
+        RETURN NULL;
+    END IF;
+    IF v_user_email.is_verified IS FALSE THEN
+        RAISE EXCEPTION 'You may not make an unverified email primary' USING ERRCODE = 'VRFY1';
+    END IF;
+    UPDATE app_public.user_emails
+    SET is_primary = FALSE
+    WHERE user_id = app_public.current_user_id()
+      AND is_primary IS TRUE
+      AND id <> email_id;
+    UPDATE app_public.user_emails
+    SET is_primary = TRUE
+    WHERE user_id = app_public.current_user_id()
+      AND is_primary IS NOT TRUE
+      AND id = email_id
+    RETURNING * INTO v_user_email;
+    RETURN v_user_email;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
+COMMENT ON FUNCTION app_public.make_email_primary(email_id uuid) IS
+    E'Your primary email is where we''ll notify of account events; other emails may be used for discovery or login. Use this when you''re changing your email address.';
 
 --! split: 1220-resend_email_verification_code.sql
 /*
  * If you don't receive the email verification email, you can trigger a resend
  * with this function.
  */
-create function app_public.resend_email_verification_code(email_id uuid) returns boolean as $$
-begin
-  if exists(
-    select 1
-    from app_public.user_emails
-    where user_emails.id = email_id
-    and user_id = app_public.current_user_id()
-    and is_verified is false
-  ) then
-    perform graphile_worker.add_job('user_emails__send_verification', json_build_object('id', email_id));
-    return true;
-  end if;
-  return false;
-end;
-$$ language plpgsql strict volatile security definer set search_path to pg_catalog, public, pg_temp;
-comment on function app_public.resend_email_verification_code(email_id uuid) is
-  E'If you didn''t receive the verification code for this email, we can resend it. We silently cap the rate of resends on the backend, so calls to this function may not result in another email being sent if it has been called recently.';
+CREATE FUNCTION app_public.resend_email_verification_code(email_id uuid) RETURNS boolean AS
+$$
+BEGIN
+    IF EXISTS(
+            SELECT 1
+            FROM app_public.user_emails
+            WHERE user_emails.id = email_id
+              AND user_id = app_public.current_user_id()
+              AND is_verified IS FALSE
+        ) THEN
+        PERFORM graphile_worker.add_job('user_emails__send_verification', JSON_BUILD_OBJECT('id', email_id));
+        RETURN TRUE;
+    END IF;
+    RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STRICT
+                    VOLATILE
+                    SECURITY DEFINER
+                    SET search_path TO pg_catalog, public, pg_temp;
+COMMENT ON FUNCTION app_public.resend_email_verification_code(email_id uuid) IS
+    E'If you didn''t receive the verification code for this email, we can resend it. We silently cap the rate of resends on the backend, so calls to this function may not result in another email being sent if it has been called recently.';
