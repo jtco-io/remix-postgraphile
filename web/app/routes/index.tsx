@@ -1,5 +1,6 @@
 import { gql, useQuery } from "@apollo/client";
 import { useHomeScreenQuery } from "~/screens/Home/Home.generated";
+import { Link } from "@remix-run/react";
 
 export default function Index() {
   const { loading, error, data } = useHomeScreenQuery();
@@ -11,31 +12,7 @@ export default function Index() {
           <li key={node?.id}>{node?.name}</li>
         ))}
       </ul>
-      <ul>
-        <li>
-          <a
-            target="_blank"
-            href="https://remix.run/tutorials/blog"
-            rel="noreferrer"
-          >
-            15m Quickstart Blog Tutorial
-          </a>
-        </li>
-        <li>
-          <a
-            target="_blank"
-            href="https://remix.run/tutorials/jokes"
-            rel="noreferrer"
-          >
-            Deep Dive Jokes App Tutorial
-          </a>
-        </li>
-        <li>
-          <a target="_blank" href="https://remix.run/docs" rel="noreferrer">
-            Remix Docs
-          </a>
-        </li>
-      </ul>
+      <Link to="/admin">Admin</Link>
     </div>
   );
 }

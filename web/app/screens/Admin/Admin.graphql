@@ -1,0 +1,8 @@
+query AdminScreen {
+  allUsers(orderBy: [CREATED_AT_DESC]) {
+    nodes {
+      id
+      name
+    }
+  }
+}

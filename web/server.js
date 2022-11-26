@@ -23,14 +23,6 @@ app.use(compression());
 // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable("x-powered-by");
 
-app.use(
-  postgraphile(process.pgPool, "app_public", {
-    watchPg: true,
-    graphiql: true,
-    enhanceGraphiql: true,
-  })
-);
-
 // Remix fingerprints its assets so we can cache forever.
 app.use(
   "/build",

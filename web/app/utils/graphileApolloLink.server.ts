@@ -30,7 +30,7 @@ export class GraphileApolloLink extends ApolloLink {
     console.log("requests!", operation.query.loc?.source.body);
     return new Observable((observer) => {
       (async () => {
-        const schema = await createPostGraphileSchema(pgPool, "public");
+        const schema = await createPostGraphileSchema(pgPool, "app_public");
         const res = await withPostGraphileContext(
           {
             pgPool,
