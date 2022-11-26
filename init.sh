@@ -52,7 +52,3 @@ create_database_and_roles
 
 yarn --cwd database graphile-migrate reset --erase
 yarn --cwd database graphile-migrate migrate --forceActions
-
-
-
-

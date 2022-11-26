@@ -20,5 +20,5 @@ module.exports = {
         'if [ -z "$CI" ]; then pg_dump --schema-only --no-owner --exclude-schema=graphile_migrate --file=database-schema.sql $GM_DBURL; fi',
     },
   ],
-  afterCurrent: [],
+  afterCurrent: ["seeds/001-users.sql"],
 };
