@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "graphile-migrate watch"
+  },
+  "dependencies": {
+    "graphile-migrate": "^1.4.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.0.3"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}
