@@ -25,12 +25,6 @@ DATABASE_SHADOW_NAME=${DATABASE_NAME}_shadow
 
 yarn install --frozen-lockfile --prefer-offline
 
-# Clean all build files
-#node_modules/.bin/tsc --build --clean
-#
-# Needed for migrations
-#node_modules/.bin/graphql-codegen
-#node_modules/.bin/tsc --build packages/config dataloader apps/backend apps/worker
 
 drop_database_and_roles () {
   echo "${LIGHTGREEN}Clearing old accounts and database${NOCOLOR}"
@@ -55,11 +49,9 @@ create_database_and_roles (){
 
 drop_database_and_roles
 create_database_and_roles
-#
-#node_modules/.bin/graphile-migrate reset --erase
-#node_modules/.bin/graphile-migrate migrate --forceActions
-#node dataloader/dist
-#sh bin/stagedata.sh
+
+yarn --cwd database graphile-migrate reset --erase
+yarn --cwd database graphile-migrate migrate --forceActions
 
 
 

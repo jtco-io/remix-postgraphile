@@ -10,8 +10,9 @@ module.exports = {
   shadowConnectionString: `${DATABASE_OWNER_URI}_shadow`,
   placeholders: {
     ":DATABASE_AUTHENTICATOR": `${DATABASE_NAME}_authenticator`,
-    ":DATABASE_VISITOR": `${DATABASE_NAME}_authenticator`,
+    ":DATABASE_VISITOR": `${DATABASE_NAME}_visitor`,
   },
+  afterReset: ["!scripts/afterReset.sql"],
   afterAllMigrations: [
     {
       _: "command",
